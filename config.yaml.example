@@ -3,32 +3,33 @@
 # config.yaml is listed in .gitignore and will never be committed.
 
 # ── Target instance ───────────────────────────────────────────────────────────
-server:  "http://your-nas-ip:5881"   # URL of the pdf-dispatch TEST instance
-api_key: "your-api-key-here"         # shown in Options → API access panel
+server:  "http://your-nas-ip:5881"
+api_key: "pdf-dispatch-test-key"
 
-# ── Email ingestion tests (Phase 5 — optional) ───────────────────────────────
-# Create a dedicated test email account (Gmail with an app password is easiest).
-# Configure that account in pdf-dispatch → Options → Configure email
-# before running test_04_email.py.
+# ── Filesystem access (Phase 1 — core processing tests) ──────────────────────
+# Path to the pdf-dispatch /data directory, accessible from where the tester runs.
+#
+# Option A — tester runs as a container on the same NAS:
+#   mount DATA_VOLUME_TEST:/data in both containers → data_path: "/data"
+#
+# Option B — tester runs directly on the NAS (SSH, no container):
+#   data_path: "/volume1/docker/pdf-dispatch-test/data"
+#
+# Option C — tester runs on your Mac (no direct filesystem access):
+#   data_path: ""   ← Phase 1 filesystem tests will be skipped
+#
+data_path: "/data"
 
+# ── Email ingestion tests (Phase 4 — optional) ───────────────────────────────
 smtp:
   host:     "smtp.gmail.com"
   port:     587
   user:     "pdf-dispatch-test@gmail.com"
-  password: "your-app-password"        # Gmail: myaccount.google.com/apppasswords
+  password: "your-app-password"
 
 imap:
-  # These mirror what you enter in the pdf-dispatch web interface.
-  # Used by the tests only to verify the configuration is in sync.
   host:     "imap.gmail.com"
   port:     993
   user:     "pdf-dispatch-test@gmail.com"
   password: "your-app-password"
   folder:   "INBOX"
-
-# ── File-drop tests (Phase 6 — semi-automated) ───────────────────────────────
-# The test will generate PDF files and ask you to drop them manually
-# into the watched folder (/data/input inside the container).
-# You can mount that folder on your Mac (via SMB/NFS) or use any other method.
-# Leave empty if you don't plan to run file-drop tests.
-filedrop_path: ""    # local path to the watched folder, e.g. /Volumes/NAS/pdf-dispatch-test/input

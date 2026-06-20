@@ -1,49 +1,81 @@
-# docker-compose.test.yml — pdf-dispatch TEST instance
+# docker-compose.test.yml
 #
-# This runs a second, isolated pdf-dispatch container on port 5881
-# alongside your production instance (port 5880).
-# All data goes to a separate folder so production data is never touched.
+# Starts TWO containers on the same NAS:
+#   1. pdf-dispatch-test  — isolated pdf-dispatch instance (port 5881)
+#   2. pdf-dispatch-tester — pytest runner with access to the same /data
 #
-# Usage (on your NAS, via SSH):
-#   docker compose -f docker-compose.test.yml up -d
-#   docker compose -f docker-compose.test.yml down
+# Both mount the same host data directory so the tester can write to
+# /data/input/ and read from /data/output/ directly.
 #
-# Or add it as a separate Portainer stack named "pdf-dispatch-test".
+# Usage:
+#   # Start pdf-dispatch test instance (keep running)
+#   docker compose -f docker-compose.test.yml up -d pdf-dispatch-test
+#
+#   # Run the test suite (one-shot, exits when done)
+#   docker compose -f docker-compose.test.yml run --rm pdf-dispatch-tester
+#
+#   # Run a specific phase only
+#   docker compose -f docker-compose.test.yml run --rm pdf-dispatch-tester \
+#       pytest tests/test_01_processing.py -v
 
 services:
+
+  # ── pdf-dispatch test instance ──────────────────────────────────────────────
   pdf-dispatch-test:
     image: ghcr.io/lheriss/pdf-dispatch:latest
     container_name: pdf-dispatch-test
-    restart: "no"   # Do not restart automatically — test instance is ephemeral
+    restart: "no"
 
     environment:
       DATA_DIR: /data
-
-      # Adapt to your system (run 'id <youruser>' in SSH)
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
       TZ:   "${TZ:-Europe/Zurich}"
-
       APP_VERSION: "test"
-
-      # Use a different EMAIL_SECRET from your production instance.
-      # Generate with: openssl rand -hex 32
       EMAIL_SECRET: "${EMAIL_SECRET_TEST:-}"
-
-      # Fix the API key so test scripts don't need to discover it
       API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
-
-      BARCODE_SCANNER:  ZXING
-      BARCODE_DPI:      "300"
-      MAX_LOG_ENTRIES:  "500"
-
-      FILE_STABLE_TIMEOUT:  "30"    # shorter timeout for faster test cycles
+      BARCODE_SCANNER:      ZXING
+      BARCODE_DPI:          "300"
+      MAX_LOG_ENTRIES:      "500"
+      FILE_STABLE_TIMEOUT:  "15"
       FILE_STABLE_INTERVAL: "1"
 
     volumes:
-      # Separate data folder — NEVER points at production data
       - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
 
     ports:
-      # Different port from production (5880)
       - "5881:5000"
+
+  # ── tester (pytest runner) ──────────────────────────────────────────────────
+  pdf-dispatch-tester:
+    image: python:3.12-slim
+    container_name: pdf-dispatch-tester
+    restart: "no"
+
+    depends_on:
+      - pdf-dispatch-test
+
+    environment:
+      # Passed through to config.yaml via pytest --config
+      TESTER_SERVER:  "http://pdf-dispatch-test:5000"
+      TESTER_API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
+      TESTER_DATA:    "/data"
+
+    volumes:
+      # Same data directory as pdf-dispatch-test
+      - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
+      # Test source code
+      - ".:/app"
+      # Persist logs and reports between runs
+      - "./logs:/app/logs"
+      - "./report:/app/report"
+
+    working_dir: /app
+
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        pip install -r requirements.txt -q
+        pytest "$$@"
+    command: ["-v", "--tb=short"]

@@ -283,3 +283,98 @@ def fixture_multi_trigger_same_page(triggers: list[str] | None = None) -> bytes:
         {"kind": "multi",   "values": triggers, "format": "qr"},
         {"kind": "content", "text": "Document after"},
     ])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Adversarial fixtures (Phase 1d / 1e)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def make_truncated_pdf() -> bytes:
+    """Valid PDF start then abruptly truncated — should go to error/."""
+    full = make_pdf([{"kind": "content", "text": "Truncated"}])
+    return full[: len(full) // 3]
+
+
+def make_zero_bytes() -> bytes:
+    """Empty file — should go to error/."""
+    return b""
+
+
+def make_non_pdf_with_pdf_extension() -> bytes:
+    """A JPEG file saved with a .pdf extension — should go to error/."""
+    return make_non_pdf()
+
+
+def make_zip_as_pdf() -> bytes:
+    """Minimal ZIP header disguised as a PDF — should go to error/."""
+    return b"PK\x03\x04" + b"\x00" * 26 + b"fake content"
+
+
+def make_low_dpi_qr(value: str = "FK3") -> bytes:
+    """
+    PDF with a very small QR code that may not be detected at standard DPI.
+    Useful for testing the boundary of barcode detection.
+    """
+    import segno
+    buf = BytesIO()
+    # Tiny QR: scale=1, no border — difficult to detect
+    segno.make_qr(value).save(buf, kind="png", scale=1, border=0)
+    png = buf.getvalue()
+
+    out = BytesIO()
+    c   = canvas.Canvas(out, pagesize=A4)
+    # Draw the tiny QR (20x20 px) in a corner
+    reader = ImageReader(BytesIO(png))
+    c.drawImage(reader, 10, 10, width=20, height=20)
+    c.showPage()
+    c.save()
+    out.seek(0)
+    return out.read()
+
+
+def make_rotated_barcode(value: str = "FK3", angle: float = 45.0) -> bytes:
+    """
+    PDF with a barcode rotated by `angle` degrees.
+    ZXing handles rotation well; pyzbar may struggle.
+    """
+    import segno
+    buf = BytesIO()
+    segno.make_qr(value).save(buf, kind="png", scale=10, border=4)
+    png = buf.getvalue()
+
+    from PIL import Image as _Image
+    img = _Image.open(BytesIO(png)).rotate(angle, expand=True)
+    rotated_buf = BytesIO()
+    img.save(rotated_buf, format="PNG")
+
+    out = BytesIO()
+    c   = canvas.Canvas(out, pagesize=A4)
+    reader = ImageReader(rotated_buf)
+    c.drawImage(reader, PAGE_W * 0.2, PAGE_H * 0.3,
+                width=PAGE_W * 0.6, height=PAGE_W * 0.6,
+                preserveAspectRatio=True)
+    c.showPage()
+    c.save()
+    out.seek(0)
+    return out.read()
+
+
+def make_single_page_with_code(value: str = "FK3") -> bytes:
+    """Single-page PDF containing only a trigger code — edge case for delete mode."""
+    return make_pdf([{"kind": "qr", "value": value}])
+
+
+def make_code_on_last_page(value: str = "FK3", content_pages: int = 3) -> bytes:
+    """PDF where the trigger appears on the last page only."""
+    pages = [{"kind": "content", "text": f"Content page {i}"} for i in range(1, content_pages + 1)]
+    pages.append({"kind": "qr", "value": value, "label": "Trigger on last page"})
+    return make_pdf(pages)
+
+
+def make_unknown_trigger(value: str = "UNKNOWN_CODE_XYZ") -> bytes:
+    """PDF with a valid QR code not in the trigger list — should go to no_code/."""
+    return make_pdf([
+        {"kind": "content", "text": "Before"},
+        {"kind": "qr",      "value": value},
+        {"kind": "content", "text": "After"},
+    ])
