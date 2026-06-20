@@ -3,6 +3,7 @@ conftest.py — pytest session fixtures for pdf-dispatch-tester.
 
 Reads configuration from config.yaml (copy config.yaml.example → config.yaml).
 Exposes reusable fixtures to all test files.
+All HTTP traffic and pdf-dispatch journal entries are automatically logged.
 """
 
 from __future__ import annotations
@@ -17,17 +18,16 @@ import pytest
 import requests
 import yaml
 
+from tester_logger import TesterLogger
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI options
 # ─────────────────────────────────────────────────────────────────────────────
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--config",
-        default="config.yaml",
-        help="Path to the configuration file (default: config.yaml)",
-    )
+    parser.addoption("--config", default="config.yaml",
+                     help="Path to the configuration file (default: config.yaml)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,24 +73,38 @@ def filedrop_path(cfg) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Logger (session-scoped — one log directory per pytest run)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def log() -> TesterLogger:
+    logger = TesterLogger(log_dir=Path("logs"))
+    yield logger
+    logger.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HTTP session
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")
-def http(server, api_key) -> requests.Session:
+def http(server, api_key, log) -> requests.Session:
     """
     Authenticated requests.Session pointing at the test instance.
-    All requests automatically include X-API-Key and Accept: application/json.
+    All HTTP traffic is automatically logged to logs/<run>/http_traffic.jsonl.
     """
     s = requests.Session()
     if api_key:
         s.headers["X-API-Key"] = api_key
     s.headers["Accept"] = "application/json"
 
-    # Verify reachability before running any test
+    # Attach logging hooks BEFORE the connectivity check
+    log.hook_session(s)
+
     try:
         r = s.get(f"{server}/healthz", timeout=5)
         r.raise_for_status()
+        log.info(f"✓ Connected to pdf-dispatch at {server}")
     except Exception as exc:
         pytest.exit(
             f"\n❌ Cannot reach pdf-dispatch at {server}\n"
@@ -102,12 +116,59 @@ def http(server, api_key) -> requests.Session:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Automatic per-test logging via pytest hooks
+# ─────────────────────────────────────────────────────────────────────────────
+
+def pytest_runtest_setup(item):
+    """Log the start of each test (accesses the session-scoped log fixture)."""
+    try:
+        logger = item.session._store.get("tester_log", None)
+        if logger:
+            logger.begin_test(item.nodeid)
+    except Exception:
+        pass
+
+
+def pytest_runtest_logreport(report):
+    """Log test outcome after the call phase."""
+    if report.when != "call":
+        return
+    try:
+        logger = report.fspath  # will fail gracefully if not available
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _auto_log(request, log):
+    """
+    Auto-use fixture: logs test start/end for every test automatically.
+    Tests may also call log.info(), log.capture_pdfdispatch_journal(), etc.
+    """
+    log.begin_test(request.node.nodeid)
+    yield
+    # Outcome is available after yield
+    outcome = "UNKNOWN"
+    if hasattr(request.node, "rep_call"):
+        rep = request.node.rep_call
+        outcome = "PASS" if rep.passed else ("FAIL" if rep.failed else "ERROR")
+    log.end_test(outcome)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Attach the call-phase report to the item so _auto_log can read it."""
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call":
+        item.rep_call = rep
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Webhook receiver
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _WebhookCapture(BaseHTTPRequestHandler):
-    """Minimal HTTP server that captures incoming POST requests."""
-
     received: list[dict] = []
 
     def do_POST(self):
@@ -122,12 +183,10 @@ class _WebhookCapture(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, *args):
-        pass  # suppress HTTP access log
+        pass
 
 
 class WebhookServer:
-    """Thin wrapper around the capture server with test-friendly helpers."""
-
     def __init__(self, srv: HTTPServer, url: str):
         self._srv = srv
         self.url  = url
@@ -140,7 +199,6 @@ class WebhookServer:
         _WebhookCapture.received.clear()
 
     def wait(self, count: int = 1, timeout: float = 10.0) -> bool:
-        """Block until at least `count` webhooks have been received or timeout."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if len(self.calls) >= count:
@@ -153,11 +211,10 @@ class WebhookServer:
 
 
 @pytest.fixture
-def webhook_server(http, server) -> WebhookServer:
+def webhook_server(http, server, log) -> WebhookServer:
     """
-    Start a local HTTP webhook receiver on a free port.
-    Automatically configures pdf-dispatch to deliver webhooks there.
-    Cleans up (disables webhook) after the test.
+    Local webhook receiver. Configures pdf-dispatch to deliver to it,
+    and restores the previous webhook configuration after the test.
     """
     _WebhookCapture.received.clear()
     srv  = HTTPServer(("127.0.0.1", 0), _WebhookCapture)
@@ -167,16 +224,15 @@ def webhook_server(http, server) -> WebhookServer:
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
 
-    # Point pdf-dispatch at our receiver
     http.post(f"{server}/api/config", json={
         "webhook_enabled": True,
         "webhook_url":     url,
         "webhook_events":  "all",
         "webhook_secret":  "",
     })
+    log.info(f"Webhook receiver started on {url}")
 
     yield WebhookServer(srv, url)
 
-    # Teardown: disable webhook
     http.post(f"{server}/api/config", json={"webhook_enabled": False, "webhook_url": ""})
     srv.shutdown()
