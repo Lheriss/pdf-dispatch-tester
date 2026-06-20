@@ -1,0 +1,58 @@
+# docker-compose.tester.yml — pdf-dispatch-tester (runner pytest)
+#
+# Déployer comme stack Portainer nommée "pdf-dispatch-tester".
+# Pour lancer les tests : Portainer → stack pdf-dispatch-tester
+#   → container pdf-dispatch-tester → Recreate.
+
+services:
+  pdf-dispatch-tester:
+    image: python:3.12-slim
+    container_name: pdf-dispatch-tester
+    restart: "no"    # conteneur one-shot : s'arrête quand pytest se termine
+
+    environment:
+      # ── Connexion à l'instance test ─────────────────────────────────────────
+      # URL interne (les deux containers sont sur le même réseau Docker)
+      TESTER_SERVER:  "http://pdf-dispatch-test:5000"
+      TESTER_API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
+
+      # ── Accès filesystem ────────────────────────────────────────────────────
+      # Chemin vers /data tel que monté dans CE container
+      TESTER_DATA: "/data"
+
+      # ── Sélection des tests ─────────────────────────────────────────────────
+      # Exemples :
+      #   "-v --tb=short"                      → tous les tests
+      #   "-v -m processing"                   → Phase 1 seulement
+      #   "-v tests/test_00_generator.py"      → Phase 0 seulement
+      #   "-v -k test_before_keep"             → un test précis
+      PYTEST_ARGS: "${PYTEST_ARGS:--v --tb=short}"
+
+      # ── Email (Phase 4 — optionnel) ─────────────────────────────────────────
+      # SMTP_HOST:     "smtp.gmail.com"
+      # SMTP_PORT:     "587"
+      # SMTP_USER:     "pdf-dispatch-test@gmail.com"
+      # SMTP_PASSWORD: "your-app-password"
+      # IMAP_HOST:     "imap.gmail.com"
+      # IMAP_PORT:     "993"
+      # IMAP_USER:     "pdf-dispatch-test@gmail.com"
+      # IMAP_PASSWORD: "your-app-password"
+      # IMAP_FOLDER:   "INBOX"
+
+    volumes:
+      # Même répertoire data que pdf-dispatch-test (accès direct aux fichiers)
+      - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
+
+      # Code source du tester — repo cloné sur le NAS
+      - "${TESTER_SOURCE:-/volume1/docker/pdf-dispatch-tester}:/app"
+
+    working_dir: /app
+
+    # Même réseau que pdf-dispatch-test pour accès par nom de container
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    external: true
+    name: pdf-dispatch-test_default
