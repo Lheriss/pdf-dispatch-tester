@@ -1,0 +1,49 @@
+# docker-compose.test.yml — pdf-dispatch TEST instance
+#
+# This runs a second, isolated pdf-dispatch container on port 5881
+# alongside your production instance (port 5880).
+# All data goes to a separate folder so production data is never touched.
+#
+# Usage (on your NAS, via SSH):
+#   docker compose -f docker-compose.test.yml up -d
+#   docker compose -f docker-compose.test.yml down
+#
+# Or add it as a separate Portainer stack named "pdf-dispatch-test".
+
+services:
+  pdf-dispatch-test:
+    image: ghcr.io/lheriss/pdf-dispatch:latest
+    container_name: pdf-dispatch-test
+    restart: "no"   # Do not restart automatically — test instance is ephemeral
+
+    environment:
+      DATA_DIR: /data
+
+      # Adapt to your system (run 'id <youruser>' in SSH)
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ:   "${TZ:-Europe/Zurich}"
+
+      APP_VERSION: "test"
+
+      # Use a different EMAIL_SECRET from your production instance.
+      # Generate with: openssl rand -hex 32
+      EMAIL_SECRET: "${EMAIL_SECRET_TEST:-}"
+
+      # Fix the API key so test scripts don't need to discover it
+      API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
+
+      BARCODE_SCANNER:  ZXING
+      BARCODE_DPI:      "300"
+      MAX_LOG_ENTRIES:  "500"
+
+      FILE_STABLE_TIMEOUT:  "30"    # shorter timeout for faster test cycles
+      FILE_STABLE_INTERVAL: "1"
+
+    volumes:
+      # Separate data folder — NEVER points at production data
+      - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
+
+    ports:
+      # Different port from production (5880)
+      - "5881:5000"

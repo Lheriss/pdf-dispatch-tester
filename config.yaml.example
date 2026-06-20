@@ -1,0 +1,34 @@
+# pdf-dispatch-tester — configuration
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is listed in .gitignore and will never be committed.
+
+# ── Target instance ───────────────────────────────────────────────────────────
+server:  "http://your-nas-ip:5881"   # URL of the pdf-dispatch TEST instance
+api_key: "your-api-key-here"         # shown in Options → API access panel
+
+# ── Email ingestion tests (Phase 5 — optional) ───────────────────────────────
+# Create a dedicated test email account (Gmail with an app password is easiest).
+# Configure that account in pdf-dispatch → Options → Configure email
+# before running test_04_email.py.
+
+smtp:
+  host:     "smtp.gmail.com"
+  port:     587
+  user:     "pdf-dispatch-test@gmail.com"
+  password: "your-app-password"        # Gmail: myaccount.google.com/apppasswords
+
+imap:
+  # These mirror what you enter in the pdf-dispatch web interface.
+  # Used by the tests only to verify the configuration is in sync.
+  host:     "imap.gmail.com"
+  port:     993
+  user:     "pdf-dispatch-test@gmail.com"
+  password: "your-app-password"
+  folder:   "INBOX"
+
+# ── File-drop tests (Phase 6 — semi-automated) ───────────────────────────────
+# The test will generate PDF files and ask you to drop them manually
+# into the watched folder (/data/input inside the container).
+# You can mount that folder on your Mac (via SMB/NFS) or use any other method.
+# Leave empty if you don't plan to run file-drop tests.
+filedrop_path: ""    # local path to the watched folder, e.g. /Volumes/NAS/pdf-dispatch-test/input

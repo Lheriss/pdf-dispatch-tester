@@ -1,0 +1,14 @@
+# Runtime
+requests>=2.32
+PyYAML>=6.0
+colorama>=0.4
+
+# PDF generation (test fixtures)
+reportlab>=4.2
+segno>=1.6          # QR code generation (pure Python)
+python-barcode>=0.15
+Pillow>=10.0
+
+# Test runner
+pytest>=8.0
+pytest-html>=4.0
