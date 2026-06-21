@@ -35,12 +35,22 @@ echo "Installing Python dependencies..."
 pip install -r requirements.txt -q
 echo ""
 
-SERVER="${TESTER_SERVER:-http://localhost:5000}"
-echo "Waiting for pdf-dispatch at ${SERVER}..."
-python3 - << 'PY'
-import urllib.request, sys, time
-server = "$SERVER"
-for i in range(30):
+# ── Mode switch ───────────────────────────────────────────────────────────────
+# WEB_MODE=1 (default): start Flask immediately — no need to wait for
+#   pdf-dispatch since the web UI shows health status via /healthz-proxy.
+# WEB_MODE=0           : wait for pdf-dispatch then run pytest once (CI).
+if [ "${WEB_MODE:-1}" = "1" ]; then
+    echo "Starting web interface on port ${WEB_PORT:-5883}..."
+    echo "Open: http://<NAS_IP>:${WEB_PORT:-5883}"
+    echo ""
+    exec python /app/web_runner.py
+else
+    SERVER="${TESTER_SERVER:-http://localhost:5000}"
+    echo "Waiting for pdf-dispatch at ${SERVER}..."
+    python3 - << 'PY'
+import urllib.request, sys, time, os
+server = os.environ.get("TESTER_SERVER", "http://localhost:5000")
+for i in range(60):
     try:
         urllib.request.urlopen(server + "/healthz", timeout=2)
         print("  OK")
@@ -49,21 +59,9 @@ for i in range(30):
         print(".", end="", flush=True)
         time.sleep(1)
 print()
-print("ERROR: pdf-dispatch not reachable after 30s")
+print("ERROR: pdf-dispatch not reachable after 60s")
 sys.exit(1)
 PY
-
-echo ""
-
-# ── Mode switch ───────────────────────────────────────────────────────────────
-# WEB_MODE=1  → start the web interface on WEB_PORT (default 5883)
-# WEB_MODE=0  → run pytest once with PYTEST_ARGS and exit  (CI / automated)
-if [ "${WEB_MODE:-1}" = "1" ]; then
-    echo "Starting web interface on port ${WEB_PORT:-5883}..."
-    echo "Open: http://<NAS_IP>:${WEB_PORT:-5883}"
-    echo ""
-    exec python /app/web_runner.py
-else
     TS=$(date +%Y-%m-%d_%H-%M-%S)
     ARGS="${PYTEST_ARGS:--v --tb=short}"
     REPORT="report/report_${TS}.html"
