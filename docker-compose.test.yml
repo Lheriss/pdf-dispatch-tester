@@ -25,21 +25,23 @@ services:
       - "/volume1/docker/pdf_test/data:/data"
 
     ports:
-      - "5881:5000"
+      - "5881:5000"   # pdf-dispatch UI
+      - "5883:5883"   # tester web UI (partagé via network_mode: service:)
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
+    # Pas de container_name : incompatible avec network_mode: service:
     restart: unless-stopped
+    network_mode: "service:pdf-dispatch-test"
 
     depends_on:
       pdf-dispatch-test:
         condition: service_healthy
 
     environment:
-      # Les deux containers sont sur le même réseau Docker (même compose) :
-      # Docker DNS résout "pdf-dispatch-test" et "pdf-dispatch-tester" directement.
-      TESTER_SERVER:  "http://pdf-dispatch-test:5000"
-      WEBHOOK_HOST:   "pdf-dispatch-tester"
+      # Réseau partagé → localhost:5000 = pdf-dispatch
+      TESTER_SERVER:  "http://localhost:5000"
+      WEBHOOK_HOST:   "localhost"
 
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
@@ -48,12 +50,9 @@ services:
 
       WEB_MODE:   "1"
       WEB_PORT:   "5883"
-      # PYTEST_ARGS: "-v --tb=short"  # utilisé seulement si WEB_MODE=0
+      # PYTEST_ARGS: "-v --tb=short"  # WEB_MODE=0 seulement
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
       - "/volume1/docker/pdf_test/logs:/app/logs"
       - "/volume1/docker/pdf_test/report:/app/report"
-
-    ports:
-      - "5883:5883"
