@@ -3,66 +3,78 @@ set -e
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║       pdf-dispatch-tester                ║"
+echo "║       pdf-dispatch-tester  [DIAGNOSTIC]  ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
 # ── Generate config.yaml ──────────────────────────────────────────────────────
-CONFIG=/app/config.yaml
-echo "Generating config.yaml..."
-
-cat > "$CONFIG" << YAML
+cat > /app/config.yaml << YAML
 server:    "${TESTER_SERVER:-http://localhost:5000}"
 api_key:   "${TESTER_API_KEY:-pdf-dispatch-test-key}"
 data_path: "${TESTER_DATA:-/data}"
-
 webhook_host: "${WEBHOOK_HOST:-localhost}"
 webhook_port: ${WEBHOOK_PORT:-5882}
-
 smtp:
-  host:     "${SMTP_HOST:-}"
-  port:     ${SMTP_PORT:-587}
-  user:     "${SMTP_USER:-}"
-  password: "${SMTP_PASSWORD:-}"
-
+  host: ""
 imap:
-  host:     "${IMAP_HOST:-}"
-  port:     ${IMAP_PORT:-993}
-  user:     "${IMAP_USER:-}"
-  password: "${IMAP_PASSWORD:-}"
-  folder:   "${IMAP_FOLDER:-INBOX}"
+  host: ""
 YAML
 
-echo "  server:       ${TESTER_SERVER:-http://localhost:5000}"
-echo "  webhook_host: ${WEBHOOK_HOST:-localhost}"
-echo "  webhook_port: ${WEBHOOK_PORT:-5882}"
+echo "=== NETWORK DIAGNOSTICS ==="
 echo ""
+echo "--- Hostname ---"
+hostname
+echo ""
+echo "--- /etc/hosts ---"
+cat /etc/hosts
+echo ""
+echo "--- Port status via Python ---"
+python3 << 'PY'
+import socket
 
-# ── Install dependencies ──────────────────────────────────────────────────────
-echo "Installing Python dependencies..."
+tests = [
+    ("localhost",    5000),
+    ("127.0.0.1",   5000),
+    ("localhost",   5881),
+    ("127.0.0.1",  5881),
+]
+
+for host, port in tests:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2)
+    r = s.connect_ex((host, port))
+    s.close()
+    status = "OPEN ✓" if r == 0 else f"closed (err {r})"
+    print(f"  {host}:{port:5d}  →  {status}")
+
+# Try resolving pdf-dispatch-test
+try:
+    ip = socket.gethostbyname("pdf-dispatch-test")
+    print(f"  pdf-dispatch-test  →  resolves to {ip}")
+    s = socket.socket()
+    s.settimeout(2)
+    r = s.connect_ex((ip, 5000))
+    s.close()
+    status = "OPEN ✓" if r == 0 else f"closed (err {r})"
+    print(f"  {ip}:5000  →  {status}")
+except Exception as e:
+    print(f"  pdf-dispatch-test  →  DNS FAILED: {e}")
+PY
+echo ""
+echo "--- Listening TCP ports (/proc/net/tcp) ---"
+python3 << 'PY'
+import socket, struct
+with open('/proc/net/tcp') as f:
+    lines = f.readlines()[1:]
+for line in lines:
+    parts = line.split()
+    if parts[3] == '0A':  # state LISTEN
+        port = int(parts[1].split(':')[1], 16)
+        print(f"  listening on port {port}")
+PY
+echo ""
+echo "==========================="
+echo ""
+echo "Install deps & exit (diagnostic run)"
 pip install -r requirements.txt -q
-echo ""
-
-# ── Wait for pdf-dispatch ─────────────────────────────────────────────────────
-SERVER="${TESTER_SERVER:-http://localhost:5000}"
-echo "Waiting for pdf-dispatch at ${SERVER}..."
-MAX=30
-i=0
-until wget -qO- "${SERVER}/healthz" > /dev/null 2>&1; do
-    i=$((i + 1))
-    if [ $i -ge $MAX ]; then
-        echo ""
-        echo "ERROR: pdf-dispatch not reachable after ${MAX}s"
-        exit 1
-    fi
-    printf "."
-    sleep 1
-done
-echo " OK"
-echo ""
-
-# ── Run pytest ────────────────────────────────────────────────────────────────
-ARGS="${PYTEST_ARGS:--v --tb=short}"
-echo "Running: pytest ${ARGS}"
-echo ""
-exec python -m pytest $ARGS
+echo "Done. Check diagnostics above."
