@@ -8,6 +8,7 @@ reportlab>=4.2
 segno>=1.6          # QR code generation (pure Python)
 python-barcode>=0.15
 Pillow>=10.0
+pypdf>=4.0
 
 # Test runner
 pytest>=8.0
