@@ -6,6 +6,9 @@ services:
     container_name: pdf-dispatch-test
     restart: unless-stopped
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     environment:
       DATA_DIR: /data
       PUID:     "1026"
@@ -28,11 +31,3 @@ services:
 
     ports:
       - "5881:5000"
-
-    networks:
-      - pdf-test-net
-
-networks:
-  pdf-test-net:
-    driver: bridge
-

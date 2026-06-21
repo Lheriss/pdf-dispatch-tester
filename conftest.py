@@ -217,14 +217,14 @@ def webhook_server(http, server, log) -> WebhookServer:
     and restores the previous webhook configuration after the test.
     """
     _WebhookCapture.received.clear()
-    srv  = HTTPServer(("0.0.0.0", 0), _WebhookCapture)
+    # WEBHOOK_PORT: fixed port exposed on the NAS host (default 5882).
+    # WEBHOOK_HOST: how pdf-dispatch-test reaches the NAS host (default host.docker.internal).
+    import os
+    wh_host = os.environ.get("WEBHOOK_HOST", "127.0.0.1")
+    wh_port = int(os.environ.get("WEBHOOK_PORT", 0))
+    srv  = HTTPServer(("0.0.0.0", wh_port), _WebhookCapture)
     port = srv.server_address[1]
-    # Use the container hostname so pdf-dispatch-test can reach us
-    # across the Docker network. Falls back to 127.0.0.1 when running
-    # outside a container (local dev / Phase 0 self-tests).
-    import os, socket
-    hostname = os.environ.get("HOSTNAME", socket.gethostname())
-    url  = f"http://{hostname}:{port}"
+    url  = f"http://{wh_host}:{port}"
 
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()

@@ -6,22 +6,37 @@ services:
     container_name: pdf-dispatch-tester
     restart: "no"
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     environment:
-      TESTER_SERVER:  "http://pdf-dispatch-test:5000"
+      # pdf-dispatch-test est joignable via le NAS hôte → port 5881
+      TESTER_SERVER:  "http://host.docker.internal:5881"
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
-      PYTEST_ARGS:    "-v --tb=short"
+
+      # Webhook : pdf-dispatch appellera le tester via le NAS hôte → port 5882
+      WEBHOOK_HOST: "host.docker.internal"
+      WEBHOOK_PORT: "5882"
+
+      # Sélection des tests
+      PYTEST_ARGS: "-v --tb=short"
+
+      # Email — Phase 4 (optionnel)
+      # SMTP_HOST:     "smtp.gmail.com"
+      # SMTP_PORT:     "587"
+      # SMTP_USER:     "pdf-dispatch-test@gmail.com"
+      # SMTP_PASSWORD: "your-app-password"
+      # IMAP_HOST:     "imap.gmail.com"
+      # IMAP_PORT:     "993"
+      # IMAP_USER:     "pdf-dispatch-test@gmail.com"
+      # IMAP_PASSWORD: "your-app-password"
+      # IMAP_FOLDER:   "INBOX"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
       - "/volume1/docker/pdf_test/logs:/app/logs"
       - "/volume1/docker/pdf_test/report:/app/report"
 
-    networks:
-      - pdf-test-net
-
-networks:
-  pdf-test-net:
-    external: true
-    name: pdf-dispatch-test-network
-
+    ports:
+      - "5882:5882"
