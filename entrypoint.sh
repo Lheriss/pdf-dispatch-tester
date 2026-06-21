@@ -48,7 +48,11 @@ except Exception as e:
 "
 
 echo ""
+TS=$(date +%Y-%m-%d_%H-%M-%S)
 ARGS="${PYTEST_ARGS:--v --tb=short}"
+REPORT="report/report_${TS}.html"
 echo "Running: pytest ${ARGS}"
+echo "Report:  ${REPORT}"
 echo ""
-exec python -m pytest $ARGS
+
+exec python -m pytest $ARGS --html="$REPORT" --self-contained-html

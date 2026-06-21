@@ -241,3 +241,54 @@ def webhook_server(cfg, http, server, log) -> WebhookServer:
 
     http.post(f"{server}/api/config", json={"webhook_enabled": False, "webhook_url": ""})
     srv.shutdown()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Session-start cleanup — restore /data to baseline state
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session", autouse=True)
+def _clean_data_on_start(cfg, log):
+    """
+    Remove all output files left from previous test sessions before any test runs.
+    Keeps the standard directory structure (error/, no_code/, processed/).
+    Custom trigger subdirectories (FK3/, INVOICE/, etc.) are deleted entirely.
+    """
+    import shutil
+    data_path = cfg.get("data_path", "")
+    if not data_path:
+        return
+
+    from pathlib import Path
+    data       = Path(data_path)
+    output_dir = data / "output"
+    input_dir  = data / "input"
+    standard   = {"error", "no_code", "processed"}
+    count      = 0
+
+    log.info("=== Cleaning /data from previous sessions ===")
+
+    if output_dir.exists():
+        for item in list(output_dir.iterdir()):
+            if item.is_dir():
+                if item.name in standard:
+                    # Clear files inside standard dirs, keep the dir
+                    for f in item.rglob("*"):
+                        if f.is_file():
+                            f.unlink(missing_ok=True)
+                            count += 1
+                else:
+                    # Remove custom trigger subdirs entirely
+                    shutil.rmtree(item, ignore_errors=True)
+                    count += 1
+            elif item.is_file():
+                item.unlink(missing_ok=True)
+                count += 1
+
+    # Clear any stale input files (e.g. from a crashed previous run)
+    if input_dir.exists():
+        for f in input_dir.glob("*.pdf"):
+            f.unlink(missing_ok=True)
+            count += 1
+
+    log.info(f"Cleanup done: {count} item(s) removed. /data is in baseline state.")
