@@ -273,7 +273,6 @@ def _clean_data_on_start(request, log):
     if not data_path:
         return
 
-    from pathlib import Path
     data       = Path(data_path)
     output_dir = data / "output"
     input_dir  = data / "input"
