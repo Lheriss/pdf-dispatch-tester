@@ -92,6 +92,7 @@ class TesterLogger:
         self.run_id  = run_id
         self._http_log   = open(self.run_dir / "http_traffic.jsonl", "w", encoding="utf-8")
         self._pdfd_log   = open(self.run_dir / "pdfdispatch.log",    "w", encoding="utf-8")
+        self._pdfd_cursor = 0  # chronological index of next unseen event
 
         # Human-readable session log
         self._log = logging.getLogger(f"tester.{run_id}")
@@ -227,36 +228,44 @@ class TesterLogger:
         http: requests.Session,
         server: str,
         label: str = "",
-        n: int = 50,
     ) -> list[dict]:
         """
-        Fetch the most recent `n` events from pdf-dispatch's activity log
-        and append them to pdfdispatch.log.
+        Fetch new events from pdf-dispatch's activity log (/api/state) and
+        append ONLY the events not yet written to pdfdispatch.log.
 
-        Returns the list of event dicts for programmatic use.
+        A cursor tracks the chronological position of the last written event,
+        so each event appears exactly once across the session — eliminating
+        the duplicate startup-message noise from repeated captures.
         """
         try:
             r = http.get(f"{server}/api/state")
-            events = list(reversed(r.json().get("events", [])))[:n]
+            # events from API are newest-first; reverse to chronological order
+            all_events = list(reversed(r.json().get("events", [])))
         except Exception as exc:
             self._log.warning(f"Could not fetch pdf-dispatch journal: {exc}")
             return []
 
-        header = f"\n{'═' * 72}\n{_ts()}  pdf-dispatch journal"
-        if label:
-            header += f"  [{label}]"
-        header += f"\n{'═' * 72}\n"
-        self._pdfd_log.write(header)
+        new_events = all_events[self._pdfd_cursor:]
+        self._pdfd_cursor = len(all_events)
 
-        for ev in events:
+        if not new_events:
+            return []
+
+        if label:
+            self._pdfd_log.write(f"\n── {label} ──\n")
+
+        for ev in new_events:
             level = ev.get("level", "info").upper()
             ts    = ev.get("ts", "")
             msg   = ev.get("message", "")
             self._pdfd_log.write(f"{ts}  {level:<7}  {msg}\n")
 
         self._pdfd_log.flush()
-        self._log.debug(f"  ↳ pdf-dispatch journal captured ({len(events)} events){' — ' + label if label else ''}")
-        return events
+        self._log.debug(
+            f"  ↳ pdf-dispatch journal: {len(new_events)} new event(s)"
+            + (f" — {label}" if label else "")
+        )
+        return new_events
 
     def capture_task(self, task: dict) -> None:
         """Log a completed task dict in full detail."""

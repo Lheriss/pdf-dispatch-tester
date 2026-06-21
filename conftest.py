@@ -262,6 +262,7 @@ def _clean_data_on_start(request, log):
     config_path = Path(request.config.getoption("--config", default="config.yaml"))
     if not config_path.exists():
         log.debug("No config.yaml found — skipping data cleanup")
+        yield
         return
     try:
         with open(config_path, encoding="utf-8") as f:
@@ -269,8 +270,10 @@ def _clean_data_on_start(request, log):
         data_path = (_cfg or {}).get("data_path", "")
     except Exception as e:
         log.warning(f"Could not read config for cleanup: {e}")
+        yield
         return
     if not data_path:
+        yield
         return
 
     data       = Path(data_path)
@@ -305,3 +308,18 @@ def _clean_data_on_start(request, log):
             count += 1
 
     log.info(f"Cleanup done: {count} item(s) removed. /data is in baseline state.")
+    yield  # run all tests
+    # ── End-of-session: remove residual files from /data/input/ ──────────────
+    # Files that could not be processed (e.g. zero-byte files that hit
+    # stabilisation timeout) are left in input/ by pdf-dispatch. These are
+    # not useful to inspect (the test result is already in the logs), so
+    # we clean them here.
+    if input_dir.exists():
+        residuals = list(input_dir.glob("*.pdf"))
+        for f in residuals:
+            f.unlink(missing_ok=True)
+        if residuals:
+            log.info(
+                f"End-of-session: removed {len(residuals)} residual file(s) "
+                f"from /data/input/ ({', '.join(f.name for f in residuals)})"
+            )
