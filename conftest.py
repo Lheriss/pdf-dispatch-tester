@@ -243,6 +243,31 @@ def webhook_server(cfg, http, server, log) -> WebhookServer:
     srv.shutdown()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _load_base_pdf(request, log):
+    """
+    If a custom base PDF exists at <data_path>/base_content.pdf, load it
+    into pdf_generator so all fixture content pages use it instead of
+    generated dummy text.
+    """
+    import yaml, pdf_generator
+    config_path = Path(request.config.getoption("--config", default="config.yaml"))
+    if not config_path.exists():
+        return
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            _cfg = yaml.safe_load(f) or {}
+        base = Path(_cfg.get("data_path", "")) / "base_content.pdf"
+        if base.exists():
+            pdf_generator.set_base_pdf(base.read_bytes())
+            log.info(f"Custom base PDF loaded: {base.name} ({base.stat().st_size:,} bytes)")
+        else:
+            pdf_generator.set_base_pdf(None)
+    except Exception as e:
+        log.warning(f"Could not load base PDF: {e}")
+    yield
+    pdf_generator.set_base_pdf(None)  # reset after session
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Session-start cleanup — restore /data to baseline state
 # ─────────────────────────────────────────────────────────────────────────────

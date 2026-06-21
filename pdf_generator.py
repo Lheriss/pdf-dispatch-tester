@@ -38,6 +38,20 @@ from typing import Any
 from PIL import Image
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
+
+# ── Optional base PDF (content pages provided by the user) ───────────────────
+_BASE_PDF_BYTES: bytes | None = None
+
+
+def set_base_pdf(data: bytes | None) -> None:
+    """Register a custom base PDF whose pages replace generated content pages."""
+    global _BASE_PDF_BYTES
+    _BASE_PDF_BYTES = data
+
+
+def get_base_pdf() -> bytes | None:
+    return _BASE_PDF_BYTES
+
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -168,6 +182,41 @@ def make_pdf(pages: list[dict[str, Any]]) -> bytes:
     -------
     bytes  PDF file content
     """
+    from pypdf import PdfReader, PdfWriter
+
+    # If a custom base PDF has been registered, use its pages as content.
+    _base = _BASE_PDF_BYTES
+    _base_pages: list | None = None
+    _base_idx = 0
+    if _base:
+        try:
+            _base_pages = list(PdfReader(BytesIO(_base)).pages)
+        except Exception:
+            _base_pages = None
+
+    # When mixing base PDF pages (pypdf) with generated pages (reportlab)
+    # we must render each page separately and merge at the end.
+    if _base_pages:
+        writer = PdfWriter()
+        for i, spec in enumerate(pages, start=1):
+            kind = spec.get("kind", "content")
+            if kind == "content":
+                writer.add_page(_base_pages[_base_idx % len(_base_pages)])
+                _base_idx += 1
+            else:
+                # Render barcode / multi page with reportlab
+                _buf = BytesIO()
+                _c = canvas.Canvas(_buf, pagesize=A4)
+                if kind == "qr":
+                    _draw_barcode_page(_c, _qr_png(spec["value"]), spec.get("label"))
+                elif kind == "code128":
+                    _draw_barcode_page(_c, _code128_png(spec["value"]), spec.get("label"))
+                elif kind == "multi":
+                    _draw_multi_page(_c, spec["values"], spec.get("format", "qr"))
+                _c.showPage(); _c.save(); _buf.seek(0)
+                writer.add_page(PdfReader(_buf).pages[0])
+        out = BytesIO(); writer.write(out); out.seek(0); return out.read()
+
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
 

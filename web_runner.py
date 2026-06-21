@@ -6,10 +6,14 @@ import io, json, os, subprocess, threading, time, zipfile
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, Response, jsonify, render_template_string, request, send_file
+from werkzeug.utils import secure_filename
 
 app    = Flask(__name__)
 SERVER = os.environ.get("TESTER_SERVER", "http://localhost:5000")
-PORT   = int(os.environ.get("WEB_PORT", 5883))
+PORT      = int(os.environ.get("WEB_PORT", 5883))
+DATA_PATH = Path(os.environ.get("TESTER_DATA", "/data"))
+BASE_PDF  = DATA_PATH / "base_content.pdf"
+BASE_META = DATA_PATH / "base_content_meta.json" 
 
 GROUPS = [
     {
@@ -185,11 +189,10 @@ _HTML = """<!DOCTYPE html>
         <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
              data-id="{{ g.id }}"
              {% if g.get('parent') %}data-parent="{{ g.get('parent') }}"{% endif %}
-             onclick="{% if g.available %}toggleGroup(this){% endif %}">
+             onclick="divClick(event,this)">
           <input type="checkbox" id="{{ g.id }}" value="{{ g.id }}"
                  {% if g.available %}checked{% endif %}
-                 {% if not g.available %}disabled{% endif %}
-                 onclick="event.stopPropagation()">
+                 {% if not g.available %}disabled{% endif %}>
           <label for="{{ g.id }}">
             <strong>{{ g.label }}</strong>
             <small>{{ g.desc }}</small>
@@ -197,6 +200,29 @@ _HTML = """<!DOCTYPE html>
         </div>
       {% endfor %}
       <button id="launch" onclick="launch()">▶ Lancer les tests</button>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Document de base (optionnel)</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px">
+        PDF fourni comme contenu des pages « document » dans les fixtures de test.
+        Le tester y insère les pages de code-barres aux positions requises.
+      </p>
+      <div id="base-info" style="display:none;font-size:12px;margin-bottom:8px;color:var(--green)">
+        📄 <span id="base-name"></span> · <span id="base-pages"></span> pages
+        <button onclick="clearBase()"
+                style="margin-left:8px;font-size:11px;border:1px solid var(--border);
+                       background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;padding:1px 6px">
+          ✕
+        </button>
+      </div>
+      <input type="file" id="base-file" accept=".pdf" style="display:none" onchange="uploadBase()">
+      <button onclick="document.getElementById('base-file').click()"
+              style="font-size:12px;padding:4px 12px;border:1px solid var(--border);
+                     background:transparent;color:var(--text);border-radius:4px;cursor:pointer">
+        📂 Choisir un PDF…
+      </button>
+      <div id="upload-err" style="color:var(--red);font-size:12px;margin-top:6px;display:none"></div>
     </div>
   </div>
 
@@ -238,47 +264,94 @@ async function checkHealth(){
 checkHealth();setInterval(checkHealth,30000);
 
 // ── parent-child checkbox sync ────────────────────────────────────────────────
-function getChildren(parentId){
-  return [...document.querySelectorAll(`[data-parent="${parentId}"] input[type=checkbox]`)];
+function syncParent(parentId) {
+  const p = document.getElementById(parentId); if (!p) return;
+  const ch = [...document.querySelectorAll(`[data-parent="${parentId}"] input[type=checkbox]`)];
+  if (!ch.length) return;
+  const all = ch.every(c => c.checked), none = ch.every(c => !c.checked);
+  p.checked = all; p.indeterminate = !all && !none;
 }
-function syncParent(parentId){
-  const p=document.getElementById(parentId);if(!p)return;
-  const ch=getChildren(parentId);if(!ch.length)return;
-  const all=ch.every(c=>c.checked),none=ch.every(c=>!c.checked);
-  p.indeterminate=!all&&!none;p.checked=all;
+
+function propagate(div, checked) {
+  // Push state to all children
+  document.querySelectorAll(`[data-parent="${div.dataset.id}"] input[type=checkbox]`).forEach(c => {
+    c.checked = checked; c.indeterminate = false;
+  });
+  // Update grandparent if this is a child
+  if (div.dataset.parent) syncParent(div.dataset.parent);
 }
-function toggleGroup(div){
-  const cb=div.querySelector('input[type=checkbox]');
-  if(!cb||cb.disabled)return;
-  cb.checked=!cb.checked;cb.indeterminate=false;
-  // propagate to children
-  const children=getChildren(div.dataset.id);
-  children.forEach(c=>{c.checked=cb.checked;c.indeterminate=false});
-  // update parent if this is a child
-  if(div.dataset.parent)syncParent(div.dataset.parent);
+
+// Called when user clicks anywhere on a group row
+function divClick(event, div) {
+  if (div.classList.contains('disabled')) return;
+  const cb = div.querySelector('input[type=checkbox]');
+  if (!cb || cb.disabled) return;
+  // If click landed ON the checkbox, it already toggled — just propagate
+  // If click landed elsewhere (div/label), toggle first
+  if (event.target !== cb) cb.checked = !cb.checked;
+  cb.indeterminate = false;
+  propagate(div, cb.checked);
 }
-// init: sync parent indeterminate state
-document.querySelectorAll('.group:not(.sub) input[type=checkbox]').forEach(cb=>{
-  syncParent(cb.id);
+
+// Init: sync all parents on page load
+document.querySelectorAll('.group[data-id]:not([data-parent])').forEach(div => {
+  syncParent(div.dataset.id);
 });
 
 // ── selection shortcuts ───────────────────────────────────────────────────────
-function selAll(){
-  document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>{
-    c.checked=true;c.indeterminate=false;});
-}
-function selNone(){
-  document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>{
-    c.checked=false;c.indeterminate=false;});
-}
-function selPhase(n){
-  selNone();
-  document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>{
-    if(c.id.startsWith('phase'+n)){c.checked=true;c.indeterminate=false;}
+function selAll() {
+  document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c => {
+    c.checked = true; c.indeterminate = false;
   });
-  // sync parents
-  document.querySelectorAll('.group:not(.sub) input[type=checkbox]').forEach(c=>syncParent(c.id));
 }
+function selNone() {
+  document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c => {
+    c.checked = false; c.indeterminate = false;
+  });
+}
+function selPhase(n) {
+  selNone();
+  document.querySelectorAll('.group[data-id]').forEach(div => {
+    const cb = div.querySelector('input[type=checkbox]');
+    if (!cb || cb.disabled) return;
+    if (div.dataset.id.startsWith('phase' + n)) {
+      cb.checked = true; cb.indeterminate = false;
+      propagate(div, true);
+    }
+  });
+  document.querySelectorAll('.group[data-id]:not([data-parent])').forEach(div => syncParent(div.dataset.id));
+}
+
+// ── base PDF upload ───────────────────────────────────────────────────────────
+async function uploadBase() {
+  const file = document.getElementById('base-file').files[0];
+  if (!file) return;
+  const form = new FormData(); form.append('file', file);
+  const r = await fetch('/upload-base', {method: 'POST', body: form});
+  const d = await r.json();
+  const errEl = document.getElementById('upload-err');
+  if (r.ok) {
+    document.getElementById('base-name').textContent = d.name;
+    document.getElementById('base-pages').textContent = d.pages;
+    document.getElementById('base-info').style.display = 'block';
+    errEl.style.display = 'none';
+  } else {
+    errEl.textContent = d.error || 'Erreur upload'; errEl.style.display = 'block';
+  }
+}
+async function clearBase() {
+  await fetch('/upload-base', {method: 'DELETE'});
+  document.getElementById('base-info').style.display = 'none';
+  document.getElementById('base-file').value = '';
+}
+// Check on load
+fetch('/base-info').then(r => r.json()).then(d => {
+  if (d.name) {
+    document.getElementById('base-name').textContent = d.name;
+    document.getElementById('base-pages').textContent = d.pages;
+    document.getElementById('base-info').style.display = 'block';
+  }
+});
 
 // ── launch ────────────────────────────────────────────────────────────────────
 let _t0=null,_ti=null;
@@ -401,6 +474,37 @@ def serve_report(filename: str):
     p = Path(filename)
     if not p.exists() or p.suffix != ".html": return "Rapport introuvable", 404
     return p.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.post("/upload-base")
+def upload_base():
+    f = request.files.get("file")
+    if not f or not (f.filename or "").lower().endswith(".pdf"):
+        return jsonify({"error": "Fichier PDF requis"}), 400
+    data = f.read()
+    try:
+        from pypdf import PdfReader
+        pages = len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:
+        return jsonify({"error": "PDF invalide ou corrompu"}), 400
+    BASE_PDF.write_bytes(data)
+    meta = {"name": secure_filename(f.filename), "pages": pages}
+    BASE_META.write_text(json.dumps(meta))
+    return jsonify({"ok": True, **meta})
+
+
+@app.delete("/upload-base")
+def delete_base():
+    BASE_PDF.unlink(missing_ok=True)
+    BASE_META.unlink(missing_ok=True)
+    return jsonify({"ok": True})
+
+
+@app.get("/base-info")
+def base_info():
+    if BASE_META.exists():
+        return jsonify(json.loads(BASE_META.read_text()))
+    return jsonify({"name": None, "pages": 0})
 
 
 @app.get("/download")
