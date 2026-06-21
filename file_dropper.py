@@ -64,9 +64,15 @@ class DropResult:
     def all_docs(self) -> list[Path]:
         """
         All output documents (output + no_code, excluding error) sorted by
-        filename. Filenames contain timestamps so this gives chronological order.
+        the sequential counter embedded in the filename (_000071.pdf).
+        This gives chronological order regardless of trigger prefix case
+        (FK3_...000072 vs no_code_...000071 — 'F' < 'n' alphabetically but
+        000071 < 000072 numerically, so counter-based sort is correct).
         """
-        return sorted(self.output_files + self.no_code_files, key=lambda p: p.name)
+        def _counter(p: Path) -> str:
+            m = re.search(r"_(\d{6})\.pdf$", p.name)
+            return m.group(1) if m else p.name
+        return sorted(self.output_files + self.no_code_files, key=_counter)
 
     def page_count(self, path: Path) -> int:
         """Number of pages in a specific output file."""
@@ -157,6 +163,13 @@ class FileDropper:
 
         after     = self._snapshot_outputs()
         new_files = self._diff_snapshots(before, after)
+        # Extract triggers from output subfolder names (more reliable than log parsing)
+        triggers = list(dict.fromkeys(
+            f.parent.name for f in sorted(new_files["output"])
+            if f.parent.name not in ("no_code", "error", "processed")
+        ))
+        task["triggers"] = triggers
+
         result    = DropResult(
             task          = task,
             filename      = filename,
@@ -193,6 +206,12 @@ class FileDropper:
 
         after  = self._snapshot_outputs()
         new    = self._diff_snapshots(before, after)
+        triggers = list(dict.fromkeys(
+            f.parent.name for f in sorted(new["output"])
+            if f.parent.name not in ("no_code", "error", "processed")
+        ))
+        task["triggers"] = triggers
+
         return DropResult(
             task          = task,
             filename      = filename,
@@ -227,22 +246,34 @@ class FileDropper:
         """
         Wait for pdf-dispatch to process a file dropped in /data/input/.
 
-        Strategy:
-        1. Poll /data/input/ until the file disappears (watchdog picked it up)
-        2. Brief wait for output files to be fully written
-        3. Parse /api/state events to extract task info (status, docs_count,
-           page ranges, triggers)
-
-        This approach is necessary because /api/tasks only tracks files
-        processed via POST /api/upload, not watchdog-processed files.
+        Detection strategy:
+          a) File disappears from /data/input/ (normal processing / error / move).
+          b) A terminal event (error, ✗, Timeout) for this filename appears in
+             /api/state — covers zero-byte files that hit stabilisation timeout
+             and are never moved out of input/.
         """
         input_path = self.input_dir / filename
         deadline   = time.monotonic() + timeout
 
-        # 1. Wait for the file to disappear from /data/input/
         while time.monotonic() < deadline:
             if not input_path.exists():
-                break
+                break  # Picked up and processed / moved / deleted
+
+            # Also watch for terminal events (error / stabilisation timeout)
+            # so we don't block for 60s on zero-byte files that stay in input/.
+            try:
+                r = self.http.get(f"{self.server}/api/state", timeout=3)
+                for ev in r.json().get("events", []):
+                    msg = ev.get("message", "")
+                    lvl = ev.get("level", "")
+                    if filename in msg and (
+                        lvl == "error" or "Timeout" in msg or "✗" in msg
+                    ):
+                        time.sleep(1.0)
+                        return self._parse_task_from_events(filename)
+            except Exception:
+                pass
+
             time.sleep(0.5)
         else:
             raise TimeoutError(
@@ -251,10 +282,7 @@ class FileDropper:
                 "Check that pdf-dispatch is running and data_path is correct."
             )
 
-        # 2. Brief wait for output files to be fully written
         time.sleep(1.5)
-
-        # 3. Parse /api/state events to reconstruct task info
         return self._parse_task_from_events(filename)
 
     def _parse_task_from_events(self, filename: str) -> dict:
@@ -281,8 +309,18 @@ class FileDropper:
             msg   = ev.get("message", "")
             level = ev.get("level", "info")
 
-            # Block start: "Traitement : filename" or "Traitement: filename"
-            if filename in msg and ("Traitement" in msg):
+            # Terminal error events can occur without a Traitement block
+            # (e.g. corrupted PDFs fail before actual processing starts).
+            if filename in msg and (
+                level == "error" or "✗" in msg or
+                ("Timeout" in msg and "stabilisation" in msg.lower())
+            ) and not in_block:
+                status    = "error"
+                error_msg = msg
+                continue
+
+            # Block start: "Traitement : filename"
+            if filename in msg and "Traitement" in msg:
                 in_block = True
                 continue
 

@@ -44,6 +44,7 @@ services:
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
       PYTEST_ARGS:    "-v --tb=short"
+      TZ:             "Europe/Zurich"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
