@@ -217,9 +217,14 @@ def webhook_server(http, server, log) -> WebhookServer:
     and restores the previous webhook configuration after the test.
     """
     _WebhookCapture.received.clear()
-    srv  = HTTPServer(("127.0.0.1", 0), _WebhookCapture)
+    srv  = HTTPServer(("0.0.0.0", 0), _WebhookCapture)
     port = srv.server_address[1]
-    url  = f"http://127.0.0.1:{port}"
+    # Use the container hostname so pdf-dispatch-test can reach us
+    # across the Docker network. Falls back to 127.0.0.1 when running
+    # outside a container (local dev / Phase 0 self-tests).
+    import os, socket
+    hostname = os.environ.get("HOSTNAME", socket.gethostname())
+    url  = f"http://{hostname}:{port}"
 
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
