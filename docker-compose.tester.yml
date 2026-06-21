@@ -23,5 +23,5 @@ services:
 networks:
   pdf-test-net:
     external: true
-    name: pdf-dispatch-test_pdf-test-net
+    name: pdf-dispatch-test-network
 
