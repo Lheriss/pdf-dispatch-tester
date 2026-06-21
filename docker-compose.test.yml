@@ -20,9 +20,14 @@ services:
       MAX_LOG_ENTRIES:      "500"
       FILE_STABLE_TIMEOUT:  "15"
       FILE_STABLE_INTERVAL: "1"
+      MAX_UPLOAD_MB:        "20"
+      MAX_PAGES:            "50"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
+
+    mem_limit: 1536m
+    memswap_limit: 1536m
 
     ports:
       - "5881:5000"   # pdf-dispatch UI

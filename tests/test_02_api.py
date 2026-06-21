@@ -625,13 +625,30 @@ class TestApiMaliciousPayload:
         r = self._upload_raw(http, server, buf.getvalue())
         _no_5xx(r); _no_stack_trace(r)
 
-    def test_large_pdf_completes(self, http, server):
-        """12-page PDF — sufficient to test large-file handling.
-        200 pages x 26 MB/page at 300 DPI = ~5 GB RAM -> Docker OOM crash.
-        """
+    def test_large_pdf_within_limit(self, http, server):
+        """12 pages, well within MAX_PAGES=50. Must succeed."""
         pages = [{"kind": "content", "text": f"Page {i}"} for i in range(12)]
         task = upload_and_wait(http, server, make_pdf(pages), timeout=30.0)
-        _task_ok(task)
+        assert task["status"] == "success"
+
+    def test_oversized_pdf_rejected(self, http, server):
+        """60 pages exceeds MAX_PAGES=50 — must be rejected before DPI rendering.
+        Verifies the guard added after a 200-page upload crashed Docker (OOM).
+        """
+        pages = [{"kind": "content", "text": f"Page {i}"} for i in range(60)]
+        r = http.post(
+            f"{server}/api/upload",
+            files={"file": ("big.pdf", make_pdf(pages), "application/pdf")},
+        )
+        _no_5xx(r)
+        body = r.json()
+        if r.status_code == 200 and body.get("saved"):
+            # Accepted at upload — task must error out
+            task = poll_task(http, server, body["saved"][0]["task_id"], timeout=30.0)
+            assert task["status"] == "error", "60-page PDF must be rejected by MAX_PAGES guard"
+        else:
+            # Rejected at upload level (preferred behaviour)
+            assert body.get("errors") or r.status_code == 400
 
     def test_many_qr_codes_no_crash(self, http, server):
         """10 consecutive QR triggers. 50 caused Docker OOM.
