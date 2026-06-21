@@ -29,3 +29,11 @@ services:
 
     ports:
       - "5881:5000"
+
+    networks:
+      - pdf-test-net
+
+networks:
+  pdf-test-net:
+    name: pdf-dispatch-test-network
+    driver: bridge

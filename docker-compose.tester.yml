@@ -1,5 +1,6 @@
 # docker-compose.tester.yml — pdf-dispatch-tester (runner pytest)
 # Déployer comme stack Portainer nommée "pdf-dispatch-tester".
+# ⚠️  Déployer APRÈS "pdf-dispatch-test" (le réseau doit exister).
 # Pour lancer les tests : container pdf-dispatch-tester → Recreate.
 
 services:
@@ -9,6 +10,7 @@ services:
     restart: "no"
 
     environment:
+      # Réseau Docker interne — pas besoin du port 5881 (hôte)
       TESTER_SERVER:  "http://pdf-dispatch-test:5000"
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
@@ -36,9 +38,9 @@ services:
       - "/volume1/docker/pdf_test/report:/app/report"
 
     networks:
-      - test-network
+      - pdf-test-net
 
 networks:
-  test-network:
+  pdf-test-net:
     external: true
-    name: pdf-dispatch-test_default
+    name: pdf-dispatch-test-network
