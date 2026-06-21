@@ -37,20 +37,21 @@ echo ""
 
 SERVER="${TESTER_SERVER:-http://localhost:5000}"
 echo "Waiting for pdf-dispatch at ${SERVER}..."
-python3 -c "
+python3 - << 'PY'
 import urllib.request, sys, time
+server = "$SERVER"
 for i in range(30):
     try:
-        urllib.request.urlopen('${SERVER}/healthz', timeout=2)
-        print('  OK')
+        urllib.request.urlopen(server + "/healthz", timeout=2)
+        print("  OK")
         sys.exit(0)
-    except:
-        print('.', end='', flush=True)
+    except Exception:
+        print(".", end="", flush=True)
         time.sleep(1)
 print()
-print('ERROR: pdf-dispatch not reachable after 30s')
+print("ERROR: pdf-dispatch not reachable after 30s")
 sys.exit(1)
-"
+PY
 
 echo ""
 
