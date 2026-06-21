@@ -7,19 +7,20 @@ echo "║       pdf-dispatch-tester                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
-# ── Detect Docker host IP from /proc/net/route ────────────────────────────────
-# Reads the kernel routing table directly — no external tools needed.
-# The default gateway (Destination=00000000) is always the Docker host (NAS).
-# Gateway is stored little-endian hex: 01B0A8C0 → 192.168.176.1
-DOCKER_HOST_IP=$(awk 'NR>1 && $2=="00000000" {
-    gw=$3
-    printf "%d.%d.%d.%d\n",
-        strtonum("0x"substr(gw,7,2)),
-        strtonum("0x"substr(gw,5,2)),
-        strtonum("0x"substr(gw,3,2)),
-        strtonum("0x"substr(gw,1,2))
-    exit
-}' /proc/net/route)
+# ── Detect Docker host IP ─────────────────────────────────────────────────────
+# Python is guaranteed available in this image.
+# Reads /proc/net/route directly — no external tools needed.
+DOCKER_HOST_IP=$(python3 - << 'PY'
+import socket, struct
+with open('/proc/net/route') as f:
+    for line in f.readlines()[1:]:
+        fields = line.strip().split()
+        if fields[1] == '00000000':
+            gw = struct.unpack('<L', bytes.fromhex(fields[2]))[0]
+            print(socket.inet_ntoa(struct.pack('>L', gw)))
+            break
+PY
+)
 
 echo "Docker host IP (NAS gateway): ${DOCKER_HOST_IP}"
 
