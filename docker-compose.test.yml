@@ -27,10 +27,11 @@ services:
     ports:
       - "5881:5000"
       - "5882:5882"
+      - "5883:5883"
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
-    restart: "no"
+    restart: unless-stopped
     network_mode: "service:pdf-dispatch-test"
 
     depends_on:
@@ -43,8 +44,13 @@ services:
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
-      PYTEST_ARGS:    "-v --tb=short"
       TZ:             "Europe/Zurich"
+
+      # WEB_MODE=1 (défaut) : interface web sur WEB_PORT
+      # WEB_MODE=0          : lance pytest avec PYTEST_ARGS et quitte (CI)
+      WEB_MODE:   "1"
+      WEB_PORT:   "5883"
+      # PYTEST_ARGS: "-v --tb=short"  # utilisé seulement si WEB_MODE=0
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"

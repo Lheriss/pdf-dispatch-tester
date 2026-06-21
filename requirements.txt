@@ -1,5 +1,6 @@
 # Runtime
 requests>=2.32
+flask>=3.0
 PyYAML>=6.0
 colorama>=0.4
 

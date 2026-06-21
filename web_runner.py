@@ -1,0 +1,365 @@
+"""
+web_runner.py — Minimal web interface for pdf-dispatch-tester.
+
+Serves a control panel on WEB_PORT (default 5883).  Test runs are launched
+as subprocess calls to pytest and streamed back via Server-Sent Events.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, render_template_string, request
+
+app = Flask(__name__)
+
+SERVER  = os.environ.get("TESTER_SERVER",  "http://localhost:5000")
+PORT    = int(os.environ.get("WEB_PORT",   5883))
+
+GROUPS = [
+    {
+        "id": "phase0",
+        "label": "Phase 0 — Générateur PDF",
+        "desc": "19 tests autonomes · aucun serveur requis",
+        "args": ["tests/test_00_generator.py"],
+        "available": True,
+    },
+    {
+        "id": "phase1",
+        "label": "Phase 1 — Traitement core (watchdog)",
+        "desc": "39 tests de fractionnement via dépôt fichier",
+        "args": ["-m", "processing"],
+        "available": True,
+    },
+    {
+        "id": "phase1_placement",
+        "label": "↳ Placement × page_handling",
+        "desc": "Before/After × Keep/Delete · 17 tests",
+        "args": [
+            "tests/test_01_processing.py::TestBeforeKeep",
+            "tests/test_01_processing.py::TestBeforeDelete",
+            "tests/test_01_processing.py::TestAfterKeep",
+            "tests/test_01_processing.py::TestAfterDelete",
+        ],
+        "available": True,
+        "sub": True,
+    },
+    {
+        "id": "phase1_triggers",
+        "label": "↳ Matching de déclencheurs",
+        "desc": "Exact, glob, casse, permissif · 8 tests",
+        "args": ["tests/test_01_processing.py::TestTriggerMatching"],
+        "available": True,
+        "sub": True,
+    },
+    {
+        "id": "phase1_multi",
+        "label": "↳ Multi-déclencheurs",
+        "desc": "Séquences et même page · 4 tests",
+        "args": ["tests/test_01_processing.py::TestMultiTrigger"],
+        "available": True,
+        "sub": True,
+    },
+    {
+        "id": "phase1_adversarial",
+        "label": "↳ Fichiers adversariaux",
+        "desc": "Corrompus, zéro-octet, faux PDF · 6 tests",
+        "args": ["tests/test_01_processing.py::TestAdversarial"],
+        "available": True,
+        "sub": True,
+    },
+    {
+        "id": "phase1_edge",
+        "label": "↳ Cas limites",
+        "desc": "Page unique, code en dernière page · 4 tests",
+        "args": ["tests/test_01_processing.py::TestEdgeCases"],
+        "available": True,
+        "sub": True,
+    },
+    {
+        "id": "phase2",
+        "label": "Phase 2 — API REST",
+        "desc": "Upload, tâches, configuration via API",
+        "args": ["-m", "api"],
+        "available": False,
+    },
+    {
+        "id": "phase3",
+        "label": "Phase 3 — Webhooks",
+        "desc": "Callbacks HTTP sortants avec signature HMAC",
+        "args": ["-m", "webhook"],
+        "available": False,
+    },
+    {
+        "id": "phase4",
+        "label": "Phase 4 — Email IMAP",
+        "desc": "Ingestion par email",
+        "args": ["-m", "email"],
+        "available": False,
+    },
+    {
+        "id": "phase5",
+        "label": "Phase 5 — File-drop avancé",
+        "desc": "Tests de robustesse filesystem",
+        "args": ["-m", "filedrop"],
+        "available": False,
+    },
+]
+
+_lock = threading.Lock()
+_job: dict | None = None
+
+_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pdf-dispatch · tester</title>
+<style>
+  :root{--bg:#0f1117;--panel:#1a1d27;--border:#2d3147;--text:#e2e4f0;
+        --muted:#6b7280;--accent:#4f9eff;--green:#34d399;--red:#f87171;
+        --yellow:#fbbf24;--font:'Segoe UI',system-ui,sans-serif;
+        --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);
+       font-size:14px;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 20px}
+  .cols{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start}
+  header{display:flex;align-items:baseline;gap:16px;
+         border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:24px}
+  header h1{font-size:20px;font-weight:700;color:var(--accent)}
+  .srv{font-size:12px;color:var(--muted);font-family:var(--mono)}
+  #health{font-size:11px;padding:2px 8px;border-radius:999px;
+          background:var(--panel);border:1px solid var(--border);margin-left:auto}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px}
+  .panel h2{font-size:12px;font-weight:600;text-transform:uppercase;
+             letter-spacing:.08em;color:var(--muted);margin-bottom:12px}
+  .group{display:flex;align-items:flex-start;gap:10px;padding:8px 6px;
+         border-radius:6px;cursor:pointer;transition:background .1s}
+  .group:hover:not(.disabled){background:rgba(79,158,255,.07)}
+  .group.disabled{opacity:.38;cursor:not-allowed}
+  .group.sub label{font-size:13px}
+  .group input[type=checkbox]{margin-top:3px;accent-color:var(--accent);
+                               width:15px;height:15px;flex-shrink:0}
+  .group label{cursor:inherit}
+  .group label strong{display:block}
+  .group label small{color:var(--muted);font-size:12px}
+  .divider{height:1px;background:var(--border);margin:8px 0}
+  .quick{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .quick button{font-size:11px;padding:3px 10px;border-radius:4px;
+                border:1px solid var(--border);background:transparent;
+                color:var(--muted);cursor:pointer;transition:all .15s}
+  .quick button:hover{border-color:var(--accent);color:var(--accent)}
+  #launch{width:100%;margin-top:16px;padding:10px;background:var(--accent);
+          color:#fff;border:none;border-radius:6px;font-size:14px;
+          font-weight:600;cursor:pointer;transition:opacity .15s}
+  #launch:hover{opacity:.85}
+  #launch:disabled{opacity:.35;cursor:not-allowed}
+  #status-bar{display:none;align-items:center;gap:10px;margin-bottom:12px}
+  #status-badge{font-size:12px;font-weight:600;padding:3px 10px;
+                border-radius:999px;border:1px solid}
+  .badge-running{color:var(--yellow);border-color:var(--yellow);background:rgba(251,191,36,.08)}
+  .badge-passed{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.08)}
+  .badge-failed{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.08)}
+  #elapsed{color:var(--muted);font-size:12px;font-family:var(--mono)}
+  #report-link{margin-left:auto;font-size:12px;color:var(--accent);text-decoration:none}
+  #report-link:hover{text-decoration:underline}
+  #out{width:100%;height:560px;background:#090b10;border:1px solid var(--border);
+       border-radius:6px;padding:12px 14px;font-family:var(--mono);font-size:12.5px;
+       line-height:1.6;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:#c9d1d9}
+  .ln-pass{color:var(--green)}
+  .ln-fail{color:var(--red)}
+  .ln-error{color:var(--red);font-weight:600}
+  .ln-sep{color:#3d4560}
+  .ln-head{color:var(--accent)}
+  #idle{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>pdf&#8209;dispatch&thinsp;·&thinsp;tester</h1>
+  <span class="srv">{{ server }}</span>
+  <span id="health">⏳ vérification…</span>
+</header>
+<div class="cols">
+
+  <div>
+    <div class="panel">
+      <h2>Tests à lancer</h2>
+      <div class="quick">
+        <button onclick="selAll()">Tout disponible</button>
+        <button onclick="selPhase(0)">Phase 0</button>
+        <button onclick="selPhase(1)">Phase 1</button>
+        <button onclick="selNone()">Aucun</button>
+      </div>
+      {% for g in groups %}
+        {% if g.id == 'phase1_placement' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase2' %}<div class="divider"></div>{% endif %}
+        <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
+             onclick="{% if g.available %}toggleGroup(this){% endif %}">
+          <input type="checkbox" id="{{ g.id }}" value="{{ g.id }}"
+                 {% if g.available and not g.get('sub') %}checked{% endif %}
+                 {% if not g.available %}disabled{% endif %}
+                 onclick="event.stopPropagation()">
+          <label for="{{ g.id }}">
+            <strong>{{ g.label }}</strong>
+            <small>{{ g.desc }}</small>
+          </label>
+        </div>
+      {% endfor %}
+      <button id="launch" onclick="launch()">▶ Lancer les tests</button>
+    </div>
+  </div>
+
+  <div>
+    <div id="status-bar">
+      <span id="status-badge">…</span>
+      <span id="elapsed"></span>
+      <a id="report-link" href="#" style="display:none" target="_blank">📄 Rapport HTML</a>
+    </div>
+    <div id="out" style="display:none"></div>
+    <p id="idle">Sélectionnez les tests et cliquez sur « Lancer les tests ».</p>
+  </div>
+
+</div>
+</div>
+<script>
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function colorLine(l){
+  if(/ PASSED/.test(l))return'<span class="ln-pass">'+esc(l)+'</span>';
+  if(/ FAILED/.test(l)||/^FAILED/.test(l))return'<span class="ln-fail">'+esc(l)+'</span>';
+  if(/^(ERROR|E\\s)/.test(l))return'<span class="ln-error">'+esc(l)+'</span>';
+  if(/^={5,}/.test(l)||/^-{5,}/.test(l))return'<span class="ln-sep">'+esc(l)+'</span>';
+  if(/^(platform|rootdir|plugins|collecting|testpaths)/.test(l))return'<span class="ln-head">'+esc(l)+'</span>';
+  return esc(l);
+}
+async function checkHealth(){
+  const el=document.getElementById('health');
+  try{const r=await fetch('/healthz-proxy');
+    el.textContent=r.ok?'🟢 pdf-dispatch OK':'🔴 pdf-dispatch hors ligne';
+    el.style.color=r.ok?'var(--green)':'var(--red)';}
+  catch{el.textContent='🔴 injoignable';el.style.color='var(--red)';}
+}
+checkHealth();setInterval(checkHealth,30000);
+function toggleGroup(div){const cb=div.querySelector('input[type=checkbox]');if(cb&&!cb.disabled)cb.checked=!cb.checked}
+function selAll(){document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>c.checked=true)}
+function selNone(){document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>c.checked=false)}
+function selPhase(n){selNone();document.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(c=>{if(c.id.startsWith('phase'+n))c.checked=true})}
+let _t0=null,_ti=null;
+async function launch(){
+  const sel=[...document.querySelectorAll('input[type=checkbox]:checked:not(:disabled)')].map(c=>c.value);
+  if(!sel.length){alert('Sélectionnez au moins un groupe.');return}
+  const btn=document.getElementById('launch');btn.disabled=true;
+  const out=document.getElementById('out');
+  out.innerHTML='';out.style.display='block';
+  document.getElementById('idle').style.display='none';
+  document.getElementById('status-bar').style.display='flex';
+  document.getElementById('report-link').style.display='none';
+  setBadge('running','⏳ En cours…');
+  _t0=Date.now();_ti=setInterval(()=>{document.getElementById('elapsed').textContent=Math.round((Date.now()-_t0)/1000)+'s'},1000);
+  const resp=await fetch('/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({groups:sel})});
+  if(!resp.ok){const e=await resp.json().catch(()=>({}));alert(e.error||'Erreur');btn.disabled=false;clearInterval(_ti);return}
+  const{report}=await resp.json();
+  const es=new EventSource('/stream');
+  es.onmessage=e=>{const l=JSON.parse(e.data);out.insertAdjacentHTML('beforeend',colorLine(l)+'\\n');out.scrollTop=out.scrollHeight};
+  es.addEventListener('done',e=>{
+    es.close();clearInterval(_ti);btn.disabled=false;
+    const{status,returncode}=JSON.parse(e.data);
+    const s=Math.round((Date.now()-_t0)/1000);document.getElementById('elapsed').textContent=s+'s';
+    setBadge(status==='PASSED'?'passed':'failed',status==='PASSED'?'✅ Tous les tests ont passé':'❌ Échec (code '+returncode+')');
+    if(report){const rl=document.getElementById('report-link');rl.href='/report/'+encodeURIComponent(report);rl.style.display='inline'}
+  });
+  es.onerror=()=>{es.close();clearInterval(_ti);btn.disabled=false;setBadge('failed','⚠ Connexion perdue')};
+}
+function setBadge(cls,txt){const b=document.getElementById('status-badge');b.className='badge-'+cls;b.textContent=txt}
+</script>
+</body>
+</html>"""
+
+
+@app.get("/")
+def index():
+    return render_template_string(_HTML, groups=GROUPS, server=SERVER)
+
+@app.get("/healthz-proxy")
+def healthz_proxy():
+    import urllib.request
+    try:
+        urllib.request.urlopen(f"{SERVER}/healthz", timeout=3)
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False}), 503
+
+@app.post("/run")
+def run_tests():
+    global _job
+    data = request.json or {}
+    selected = data.get("groups", [])
+    with _lock:
+        if _job and _job.get("running"):
+            return jsonify({"error": "Tests déjà en cours"}), 409
+        cmd = ["python", "-m", "pytest", "-v", "--tb=short", "--no-header"]
+        seen: list[str] = []
+        for gid in selected:
+            grp = next((g for g in GROUPS if g["id"] == gid and g["available"]), None)
+            if grp:
+                for a in grp["args"]:
+                    if a not in seen:
+                        seen.append(a)
+        cmd.extend(seen)
+        ts     = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report = f"report/report_{ts}.html"
+        Path("report").mkdir(exist_ok=True)
+        cmd += ["--html", report, "--self-contained-html"]
+        _job = {"running": True, "lines": [], "returncode": None, "report": report}
+        def _run():
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in proc.stdout:
+                with _lock: _job["lines"].append(line.rstrip())
+            proc.wait()
+            with _lock: _job["running"] = False; _job["returncode"] = proc.returncode
+        threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "report": report})
+
+@app.get("/stream")
+def stream():
+    def _gen():
+        sent = 0
+        while True:
+            with _lock:
+                if _job is None: yield "data: {}\n\n"; return
+                lines = _job["lines"][:]
+                running = _job["running"]
+                rc = _job["returncode"]
+            for line in lines[sent:]:
+                yield f"data: {json.dumps(line)}\n\n"; sent += 1
+            if not running:
+                s = "PASSED" if rc == 0 else "FAILED"
+                yield f"event: done\ndata: {json.dumps({'status': s, 'returncode': rc})}\n\n"; return
+            time.sleep(0.15)
+    return Response(_gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.get("/report/<path:filename>")
+def serve_report(filename: str):
+    p = Path(filename)
+    if not p.exists() or p.suffix != ".html": return "Rapport introuvable", 404
+    return p.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+@app.get("/status")
+def status():
+    with _lock:
+        if _job is None: return jsonify({"status": "idle"})
+        return jsonify({"status": "running" if _job["running"] else ("passed" if _job["returncode"]==0 else "failed"),
+                        "returncode": _job["returncode"], "lines": len(_job["lines"]), "report": _job.get("report")})
+
+if __name__ == "__main__":
+    print(f"pdf-dispatch-tester web UI → http://0.0.0.0:{PORT}")
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
