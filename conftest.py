@@ -248,14 +248,28 @@ def webhook_server(cfg, http, server, log) -> WebhookServer:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session", autouse=True)
-def _clean_data_on_start(cfg, log):
+def _clean_data_on_start(request, log):
     """
     Remove all output files left from previous test sessions before any test runs.
     Keeps the standard directory structure (error/, no_code/, processed/).
     Custom trigger subdirectories (FK3/, INVOICE/, etc.) are deleted entirely.
+
+    Reads config.yaml directly (without depending on the cfg fixture) so this
+    fixture is safe to run even when no config.yaml exists (e.g. in CI for
+    Phase 0 self-tests that don't need a server or data directory).
     """
     import shutil
-    data_path = cfg.get("data_path", "")
+    config_path = Path(request.config.getoption("--config", default="config.yaml"))
+    if not config_path.exists():
+        log.debug("No config.yaml found — skipping data cleanup")
+        return
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            _cfg = yaml.safe_load(f)
+        data_path = (_cfg or {}).get("data_path", "")
+    except Exception as e:
+        log.warning(f"Could not read config for cleanup: {e}")
+        return
     if not data_path:
         return
 
