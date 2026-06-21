@@ -30,12 +30,12 @@ services:
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
-    # Pas de container_name : incompatible avec network_mode: service:
     restart: "no"
     network_mode: "service:pdf-dispatch-test"
 
     depends_on:
-      - pdf-dispatch-test
+      pdf-dispatch-test:
+        condition: service_healthy
 
     environment:
       TESTER_SERVER:  "http://localhost:5000"
