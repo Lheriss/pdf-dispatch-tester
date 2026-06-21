@@ -34,7 +34,7 @@ GROUPS = [
         "id": "phase1",
         "label": "Phase 1 — Traitement core (watchdog)",
         "desc": "39 tests de fractionnement via dépôt fichier",
-        "args": ["-m", "processing"],
+        "args": ["tests/test_01_processing.py"],
         "available": True,
     },
     {
@@ -312,7 +312,13 @@ def run_tests():
             if grp:
                 for a in grp["args"]:
                     if a not in seen:
-                        seen.append(a)
+                        # If a parent path is already in seen, skip sub-paths of it
+                        parent_already = any(
+                            a.startswith(s + "::") or a.startswith(s + "/")
+                            for s in seen if not s.startswith("-")
+                        )
+                        if not parent_already:
+                            seen.append(a)
         cmd.extend(seen)
         ts     = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         report = f"report/report_{ts}.html"
