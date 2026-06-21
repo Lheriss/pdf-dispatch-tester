@@ -30,18 +30,16 @@ services:
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
-    container_name: pdf-dispatch-tester
+    # Pas de container_name : incompatible avec network_mode: service:
     restart: "no"
-    # Partage le namespace réseau de pdf-dispatch-test :
-    # localhost:5000 = pdf-dispatch, localhost:5882 = webhook receiver
     network_mode: "service:pdf-dispatch-test"
 
     depends_on:
       - pdf-dispatch-test
 
     environment:
-      TESTER_SERVER: "http://localhost:5000"
-      WEBHOOK_HOST:  "localhost"
+      TESTER_SERVER:  "http://localhost:5000"
+      WEBHOOK_HOST:   "localhost"
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
