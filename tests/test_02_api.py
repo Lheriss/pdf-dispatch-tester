@@ -650,6 +650,32 @@ class TestApiMaliciousPayload:
             # Rejected at upload level (preferred behaviour)
             assert body.get("errors") or r.status_code == 400
 
+    def test_oversized_file_mb_rejected(self, http, server):
+        """File > MAX_UPLOAD_MB=20 must be rejected with HTTP 400 before disk write.
+        Sends 21 MB (PDF header + null bytes): content is irrelevant, size is what matters.
+        MAX_UPLOAD_MB=20 is set in docker-compose.test.yml for the test instance.
+        The production default is 50 MB (no env var needed to get that protection).
+        """
+        # 21 MB with a valid PDF header so it passes the .pdf extension check
+        oversized = b"%PDF-1.4\n" + b"\x00" * (21 * 1024 * 1024)
+        r = http.post(
+            f"{server}/api/upload",
+            files={"file": ("oversized.pdf", oversized, "application/pdf")},
+        )
+        _no_5xx(r)
+        body = r.json()
+        # Must be rejected: either HTTP 400 directly, or errors[] in the response
+        rejected = (r.status_code == 400) or bool(body.get("errors"))
+        assert rejected, (
+            f"Expected rejection of 21 MB file (MAX_UPLOAD_MB=20) "
+            f"but got status={r.status_code} body={body}"
+        )
+        # Error message must mention the size limit
+        if body.get("errors"):
+            assert any("MB" in e or "limit" in e.lower() for e in body["errors"]), (
+                f"Error message should mention the size limit: {body['errors']}"
+            )
+
     def test_many_qr_codes_no_crash(self, http, server):
         """10 consecutive QR triggers. 50 caused Docker OOM.
         Each triggers a split -> memory + disk pressure at 300 DPI.
