@@ -73,8 +73,61 @@ GROUPS = [
     {
         "id": "phase2",
         "label": "Phase 2 — API REST",
-        "desc": "Upload, tâches, configuration via API",
-        "args": ["-m", "api"], "available": False,
+        "desc": "40 tests upload, tâches, config, sécurité",
+        "args": [],
+        "available": True,
+    },
+    {
+        "id": "phase2_upload",
+        "label": "↳ Placement × page_handling",
+        "desc": "Before/After × Keep/Delete via API · 12 tests",
+        "args": [
+            "tests/test_02_api.py::TestApiBeforeKeep",
+            "tests/test_02_api.py::TestApiBeforeDelete",
+            "tests/test_02_api.py::TestApiAfterKeep",
+            "tests/test_02_api.py::TestApiAfterDelete",
+        ],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_config",
+        "label": "↳ Config overrides & triggers",
+        "desc": "Per-file overrides + matching · 9 tests",
+        "args": [
+            "tests/test_02_api.py::TestApiConfigOverride",
+            "tests/test_02_api.py::TestApiTriggerMatching",
+        ],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_lifecycle",
+        "label": "↳ Auth & lifecycle",
+        "desc": "Auth, task IDs, task list · 10 tests",
+        "args": [
+            "tests/test_02_api.py::TestApiAuth",
+            "tests/test_02_api.py::TestApiTaskLifecycle",
+        ],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_errors",
+        "label": "↳ Erreurs & cas limites",
+        "desc": "Fichiers invalides, champs manquants · 5 tests",
+        "args": ["tests/test_02_api.py::TestApiErrors"],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_security",
+        "label": "↳ Sécurité & détournements",
+        "desc": "Auth bypass, injection, SSRF, payloads · 24 tests",
+        "args": [
+            "tests/test_02_api.py::TestApiAuthBypass",
+            "tests/test_02_api.py::TestApiFilenameInjection",
+            "tests/test_02_api.py::TestApiConfigInjection",
+            "tests/test_02_api.py::TestApiSsrf",
+            "tests/test_02_api.py::TestApiMaliciousPayload",
+        ],
+        "available": True, "sub": True, "parent": "phase2",
     },
     {
         "id": "phase3",
