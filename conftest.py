@@ -211,17 +211,17 @@ class WebhookServer:
 
 
 @pytest.fixture
-def webhook_server(http, server, log) -> WebhookServer:
+def webhook_server(cfg, http, server, log) -> WebhookServer:
     """
     Local webhook receiver. Configures pdf-dispatch to deliver to it,
     and restores the previous webhook configuration after the test.
+
+    Uses webhook_host and webhook_port from config.yaml (written by
+    entrypoint.sh from the auto-detected Docker gateway IP).
     """
     _WebhookCapture.received.clear()
-    # WEBHOOK_PORT: fixed port exposed on the NAS host (default 5882).
-    # WEBHOOK_HOST: how pdf-dispatch-test reaches the NAS host (default host.docker.internal).
-    import os
-    wh_host = os.environ.get("WEBHOOK_HOST", "127.0.0.1")
-    wh_port = int(os.environ.get("WEBHOOK_PORT", 0))
+    wh_host = str(cfg.get("webhook_host", "127.0.0.1"))
+    wh_port = int(cfg.get("webhook_port", 5882))
     srv  = HTTPServer(("0.0.0.0", wh_port), _WebhookCapture)
     port = srv.server_address[1]
     url  = f"http://{wh_host}:{port}"

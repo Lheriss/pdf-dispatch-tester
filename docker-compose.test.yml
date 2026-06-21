@@ -6,20 +6,14 @@ services:
     container_name: pdf-dispatch-test
     restart: unless-stopped
 
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
     environment:
       DATA_DIR: /data
       PUID:     "1026"
       PGID:     "100"
       TZ:       "Europe/Zurich"
-
       APP_VERSION: "test"
-
       API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
-
       BARCODE_SCANNER:      ZXING
       BARCODE_DPI:          "300"
       MAX_LOG_ENTRIES:      "500"
