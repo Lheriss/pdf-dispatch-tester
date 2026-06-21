@@ -29,7 +29,6 @@ services:
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
-    container_name: pdf-dispatch-tester
     restart: unless-stopped
 
     depends_on:
