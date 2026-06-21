@@ -1,29 +1,25 @@
 # docker-compose.tester.yml — pdf-dispatch-tester (runner pytest)
-#
 # Déployer comme stack Portainer nommée "pdf-dispatch-tester".
-# Pour lancer les tests : Portainer → stack → container → Recreate.
+# Pour lancer les tests : container pdf-dispatch-tester → Recreate.
 
 services:
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
     container_name: pdf-dispatch-tester
-    restart: "no"    # one-shot : s'arrête quand pytest se termine
+    restart: "no"
 
     environment:
-      # ── Connexion à pdf-dispatch-test ──────────────────────────────────────
       TESTER_SERVER:  "http://pdf-dispatch-test:5000"
-      TESTER_API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
+      TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
 
-      # ── Sélection des tests ─────────────────────────────────────────────────
-      # Exemples :
-      #   "-v --tb=short"                   → tous les tests
+      # Sélection des tests — modifier et Recreate pour cibler une phase :
       #   "-v -m processing"                → Phase 1 seulement
       #   "-v tests/test_00_generator.py"   → Phase 0 (sans serveur)
       #   "-v -k test_before_keep"          → un test précis
-      PYTEST_ARGS: "${PYTEST_ARGS:--v --tb=short}"
+      PYTEST_ARGS: "-v --tb=short"
 
-      # ── Email (Phase 4 — optionnel) ─────────────────────────────────────────
+      # Email — Phase 4 (optionnel, décommenter et compléter)
       # SMTP_HOST:     "smtp.gmail.com"
       # SMTP_PORT:     "587"
       # SMTP_USER:     "pdf-dispatch-test@gmail.com"
@@ -35,11 +31,9 @@ services:
       # IMAP_FOLDER:   "INBOX"
 
     volumes:
-      # Même répertoire data que pdf-dispatch-test
-      - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
-      # Logs et rapports persistants sur le NAS
-      - "${TESTER_LOGS:-/tmp/pdf-dispatch-tester-logs}:/app/logs"
-      - "${TESTER_REPORT:-/tmp/pdf-dispatch-tester-report}:/app/report"
+      - "/volume1/docker/pdf_test/data:/data"
+      - "/volume1/docker/pdf_test/logs:/app/logs"
+      - "/volume1/docker/pdf_test/report:/app/report"
 
     networks:
       - test-network

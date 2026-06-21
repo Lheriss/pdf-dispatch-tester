@@ -1,7 +1,5 @@
 # docker-compose.test.yml — pdf-dispatch TEST instance
-#
 # Déployer comme stack Portainer nommée "pdf-dispatch-test".
-# Voir README.md → Déploiement dans Portainer.
 
 services:
   pdf-dispatch-test:
@@ -11,28 +9,23 @@ services:
 
     environment:
       DATA_DIR: /data
-      PUID:     "${PUID:-1000}"
-      PGID:     "${PGID:-1000}"
-      TZ:       "${TZ:-Europe/Zurich}"
+      PUID:     "1026"
+      PGID:     "100"
+      TZ:       "Europe/Zurich"
 
       APP_VERSION: "test"
 
-      # Clé API fixe pour que les tests n'aient pas à la découvrir
-      API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
-
-      # Clé de chiffrement email — générer avec : openssl rand -hex 32
-      EMAIL_SECRET: "${EMAIL_SECRET_TEST:-}"
+      API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
+      EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
 
       BARCODE_SCANNER:      ZXING
       BARCODE_DPI:          "300"
       MAX_LOG_ENTRIES:      "500"
-
-      # Timeouts courts pour des cycles de test plus rapides
       FILE_STABLE_TIMEOUT:  "15"
       FILE_STABLE_INTERVAL: "1"
 
     volumes:
-      - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
+      - "/volume1/docker/pdf_test/data:/data"
 
     ports:
       - "5881:5000"
