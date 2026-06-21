@@ -1,13 +1,5 @@
 version: "3.8"
 
-# Les deux containers partagent automatiquement le réseau de ce stack.
-# pdf-dispatch-tester atteint pdf-dispatch-test via http://pdf-dispatch-test:5000
-# pdf-dispatch-test rappelle le webhook via http://pdf-dispatch-tester:<port>
-# — aucun IP externe ni configuration réseau nécessaire.
-#
-# Portainer → stack pdf-dispatch-test → container pdf-dispatch-tester → Recreate
-# pour relancer les tests.
-
 services:
 
   pdf-dispatch-test:
@@ -34,36 +26,26 @@ services:
 
     ports:
       - "5881:5000"
+      - "5882:5882"
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
     container_name: pdf-dispatch-tester
     restart: "no"
+    # Partage le namespace réseau de pdf-dispatch-test :
+    # localhost:5000 = pdf-dispatch, localhost:5882 = webhook receiver
+    network_mode: "service:pdf-dispatch-test"
 
     depends_on:
       - pdf-dispatch-test
 
     environment:
-      # Réseau interne Docker — pas d'IP externe nécessaire
-      TESTER_SERVER: "http://pdf-dispatch-test:5000"
-      WEBHOOK_HOST:  "pdf-dispatch-tester"
-
+      TESTER_SERVER: "http://localhost:5000"
+      WEBHOOK_HOST:  "localhost"
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
-
-      PYTEST_ARGS: "-v --tb=short"
-
-      # Email — Phase 4 (optionnel)
-      # SMTP_HOST:     "smtp.gmail.com"
-      # SMTP_PORT:     "587"
-      # SMTP_USER:     "pdf-dispatch-test@gmail.com"
-      # SMTP_PASSWORD: "your-app-password"
-      # IMAP_HOST:     "imap.gmail.com"
-      # IMAP_PORT:     "993"
-      # IMAP_USER:     "pdf-dispatch-test@gmail.com"
-      # IMAP_PASSWORD: "your-app-password"
-      # IMAP_FOLDER:   "INBOX"
+      PYTEST_ARGS:    "-v --tb=short"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
