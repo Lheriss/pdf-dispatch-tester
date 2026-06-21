@@ -178,7 +178,10 @@ class TesterLogger:
 
         # Extract request body
         try:
-            req_body = json.loads(req.body) if req.body else None
+            try:
+                req_body = json.loads(req.body) if req.body else None
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                req_body = f"<binary {len(req.body)} bytes>" if req.body else None
         except (json.JSONDecodeError, TypeError):
             req_body = str(req.body)[:300] if req.body else None
 
