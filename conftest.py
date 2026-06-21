@@ -244,29 +244,23 @@ def webhook_server(cfg, http, server, log) -> WebhookServer:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _load_base_pdf(request, log):
+def _load_base_pdf():
     """
-    If a custom base PDF exists at <data_path>/base_content.pdf, load it
+    If a custom base PDF exists at $TESTER_DATA/base_content.pdf, load it
     into pdf_generator so all fixture content pages use it instead of
-    generated dummy text.
+    generated dummy text. Completely self-contained — no other fixtures
+    required, so it works in CI where config.yaml is absent.
     """
-    import yaml, pdf_generator
-    config_path = Path(request.config.getoption("--config", default="config.yaml"))
-    if not config_path.exists():
-        return
+    import os, pdf_generator
+    data_path = os.environ.get("TESTER_DATA", "/data")
     try:
-        with open(config_path, encoding="utf-8") as f:
-            _cfg = yaml.safe_load(f) or {}
-        base = Path(_cfg.get("data_path", "")) / "base_content.pdf"
+        base = Path(data_path) / "base_content.pdf"
         if base.exists():
             pdf_generator.set_base_pdf(base.read_bytes())
-            log.info(f"Custom base PDF loaded: {base.name} ({base.stat().st_size:,} bytes)")
-        else:
-            pdf_generator.set_base_pdf(None)
-    except Exception as e:
-        log.warning(f"Could not load base PDF: {e}")
+    except Exception:
+        pass  # silently ignore: CI has no /data
     yield
-    pdf_generator.set_base_pdf(None)  # reset after session
+    pdf_generator.set_base_pdf(None)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Session-start cleanup — restore /data to baseline state
