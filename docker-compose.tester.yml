@@ -1,31 +1,26 @@
 # docker-compose.tester.yml — pdf-dispatch-tester (runner pytest)
 #
 # Déployer comme stack Portainer nommée "pdf-dispatch-tester".
-# Pour lancer les tests : Portainer → stack pdf-dispatch-tester
-#   → container pdf-dispatch-tester → Recreate.
+# Pour lancer les tests : Portainer → stack → container → Recreate.
 
 services:
   pdf-dispatch-tester:
-    image: python:3.12-slim
+    image: ghcr.io/lheriss/pdf-dispatch-tester:latest
     container_name: pdf-dispatch-tester
-    restart: "no"    # conteneur one-shot : s'arrête quand pytest se termine
+    restart: "no"    # one-shot : s'arrête quand pytest se termine
 
     environment:
-      # ── Connexion à l'instance test ─────────────────────────────────────────
-      # URL interne (les deux containers sont sur le même réseau Docker)
+      # ── Connexion à pdf-dispatch-test ──────────────────────────────────────
       TESTER_SERVER:  "http://pdf-dispatch-test:5000"
       TESTER_API_KEY: "${TEST_API_KEY:-pdf-dispatch-test-key}"
-
-      # ── Accès filesystem ────────────────────────────────────────────────────
-      # Chemin vers /data tel que monté dans CE container
-      TESTER_DATA: "/data"
+      TESTER_DATA:    "/data"
 
       # ── Sélection des tests ─────────────────────────────────────────────────
       # Exemples :
-      #   "-v --tb=short"                      → tous les tests
-      #   "-v -m processing"                   → Phase 1 seulement
-      #   "-v tests/test_00_generator.py"      → Phase 0 seulement
-      #   "-v -k test_before_keep"             → un test précis
+      #   "-v --tb=short"                   → tous les tests
+      #   "-v -m processing"                → Phase 1 seulement
+      #   "-v tests/test_00_generator.py"   → Phase 0 (sans serveur)
+      #   "-v -k test_before_keep"          → un test précis
       PYTEST_ARGS: "${PYTEST_ARGS:--v --tb=short}"
 
       # ── Email (Phase 4 — optionnel) ─────────────────────────────────────────
@@ -40,15 +35,12 @@ services:
       # IMAP_FOLDER:   "INBOX"
 
     volumes:
-      # Même répertoire data que pdf-dispatch-test (accès direct aux fichiers)
+      # Même répertoire data que pdf-dispatch-test
       - "${DATA_VOLUME_TEST:-/tmp/pdf-dispatch-test}:/data"
+      # Logs et rapports persistants sur le NAS
+      - "${TESTER_LOGS:-/tmp/pdf-dispatch-tester-logs}:/app/logs"
+      - "${TESTER_REPORT:-/tmp/pdf-dispatch-tester-report}:/app/report"
 
-      # Code source du tester — repo cloné sur le NAS
-      - "${TESTER_SOURCE:-/volume1/docker/pdf-dispatch-tester}:/app"
-
-    working_dir: /app
-
-    # Même réseau que pdf-dispatch-test pour accès par nom de container
     networks:
       - test-network
 
