@@ -7,15 +7,26 @@ services:
     restart: "no"
 
     environment:
-      # TESTER_SERVER est détecté automatiquement (gateway du réseau bridge).
-      # Décommenter pour forcer une adresse spécifique :
-      # TESTER_SERVER: "http://192.168.1.x:5881"
+      # Adresse IP du NAS sur le réseau local
+      TESTER_SERVER:  "http://172.28.8.15:5881"
+      WEBHOOK_HOST:   "172.28.8.15"
 
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
 
       PYTEST_ARGS: "-v --tb=short"
+
+      # Email — Phase 4 (optionnel)
+      # SMTP_HOST:     "smtp.gmail.com"
+      # SMTP_PORT:     "587"
+      # SMTP_USER:     "pdf-dispatch-test@gmail.com"
+      # SMTP_PASSWORD: "your-app-password"
+      # IMAP_HOST:     "imap.gmail.com"
+      # IMAP_PORT:     "993"
+      # IMAP_USER:     "pdf-dispatch-test@gmail.com"
+      # IMAP_PASSWORD: "your-app-password"
+      # IMAP_FOLDER:   "INBOX"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
