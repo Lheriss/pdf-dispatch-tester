@@ -1,5 +1,4 @@
-# docker-compose.test.yml — pdf-dispatch TEST instance
-# Déployer comme stack Portainer nommée "pdf-dispatch-test".
+version: "3.8"
 
 services:
   pdf-dispatch-test:
@@ -35,5 +34,5 @@ services:
 
 networks:
   pdf-test-net:
-    name: pdf-dispatch-test-network
     driver: bridge
+

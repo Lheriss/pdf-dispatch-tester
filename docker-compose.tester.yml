@@ -1,7 +1,4 @@
-# docker-compose.tester.yml — pdf-dispatch-tester (runner pytest)
-# Déployer comme stack Portainer nommée "pdf-dispatch-tester".
-# ⚠️  Déployer APRÈS "pdf-dispatch-test" (le réseau doit exister).
-# Pour lancer les tests : container pdf-dispatch-tester → Recreate.
+version: "3.8"
 
 services:
   pdf-dispatch-tester:
@@ -10,27 +7,10 @@ services:
     restart: "no"
 
     environment:
-      # Réseau Docker interne — pas besoin du port 5881 (hôte)
       TESTER_SERVER:  "http://pdf-dispatch-test:5000"
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       TESTER_DATA:    "/data"
-
-      # Sélection des tests — modifier et Recreate pour cibler une phase :
-      #   "-v -m processing"                → Phase 1 seulement
-      #   "-v tests/test_00_generator.py"   → Phase 0 (sans serveur)
-      #   "-v -k test_before_keep"          → un test précis
-      PYTEST_ARGS: "-v --tb=short"
-
-      # Email — Phase 4 (optionnel, décommenter et compléter)
-      # SMTP_HOST:     "smtp.gmail.com"
-      # SMTP_PORT:     "587"
-      # SMTP_USER:     "pdf-dispatch-test@gmail.com"
-      # SMTP_PASSWORD: "your-app-password"
-      # IMAP_HOST:     "imap.gmail.com"
-      # IMAP_PORT:     "993"
-      # IMAP_USER:     "pdf-dispatch-test@gmail.com"
-      # IMAP_PASSWORD: "your-app-password"
-      # IMAP_FOLDER:   "INBOX"
+      PYTEST_ARGS:    "-v --tb=short"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
@@ -43,4 +23,5 @@ services:
 networks:
   pdf-test-net:
     external: true
-    name: pdf-dispatch-test-network
+    name: pdf-dispatch-test_pdf-test-net
+
