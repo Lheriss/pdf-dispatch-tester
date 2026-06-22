@@ -42,9 +42,9 @@ _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
 _IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
-_USERNAME      = "pdftester@test.local"
+_USERNAME      = "pdftester@greenmail"
 _PASSWORD      = "pdftester"
-_FROM          = "sender@test.local"
+_FROM          = "sender@greenmail"
 _OTHER_SENDER  = "other@external.com"
 
 # ── Module-level fixtures ─────────────────────────────────────────────────────

@@ -357,9 +357,9 @@ _GREENMAIL_SMTP_HOST = "greenmail"
 _GREENMAIL_SMTP_PORT = 3025
 _GREENMAIL_IMAP_HOST = "greenmail"
 _GREENMAIL_IMAPS_PORT = 3993
-_GREENMAIL_USERNAME  = "pdftester@test.local"
+_GREENMAIL_USERNAME  = "pdftester@greenmail"
 _GREENMAIL_PASSWORD  = "pdftester"
-_GREENMAIL_FROM      = "sender@test.local"
+_GREENMAIL_FROM      = "sender@greenmail"
 
 
 def _clear_email_configs(http, server) -> None:
