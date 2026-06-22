@@ -42,7 +42,8 @@ _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
 _IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
-_USERNAME      = "pdftester@greenmail"
+_IMAP_USER     = "pdftester"         # IMAP login (local-part only in Greenmail)
+_EMAIL_ADDR    = "pdftester@greenmail"  # SMTP To: address
 _PASSWORD      = "pdftester"
 _FROM          = "sender@greenmail"
 _OTHER_SENDER  = "other@external.com"
@@ -155,7 +156,7 @@ class TestEmailConfigAPI:
         ec = next((c for c in configs if c.get("name") == "phase4-greenmail"), None)
         assert ec is not None, f"Created config not found in response: {configs}"
         assert ec["host"]     == _IMAP_HOST
-        assert ec["username"] == _USERNAME
+        assert ec["username"] == _IMAP_USER
         assert ec["action"]   == "read"
         assert "id" in ec
 
@@ -203,7 +204,7 @@ class TestEmailConfigAPI:
             "name":       "test-conn",
             "host":       _IMAP_HOST,
             "port":       _IMAP_PORT,
-            "username":   _USERNAME,
+            "username":   _IMAP_USER,
             "password":   _PASSWORD,
             "folder":     "INBOX",
             "verify_ssl": False,

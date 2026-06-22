@@ -357,7 +357,8 @@ _GREENMAIL_SMTP_HOST = "greenmail"
 _GREENMAIL_SMTP_PORT = 3025
 _GREENMAIL_IMAP_HOST = "greenmail"
 _GREENMAIL_IMAPS_PORT = 3993
-_GREENMAIL_USERNAME  = "pdftester@greenmail"
+_GREENMAIL_IMAP_USER = "pdftester"            # IMAP login (Greenmail: login = local-part)
+_GREENMAIL_EMAIL     = "pdftester@greenmail"  # full email address for SMTP To:
 _GREENMAIL_PASSWORD  = "pdftester"
 _GREENMAIL_FROM      = "sender@greenmail"
 
@@ -398,7 +399,7 @@ def email_inbox(http, server):
             "enabled":      True,
             "host":         _GREENMAIL_IMAP_HOST,
             "port":         _GREENMAIL_IMAPS_PORT,
-            "username":     _GREENMAIL_USERNAME,
+            "username":     _GREENMAIL_IMAP_USER,
             "password":     _GREENMAIL_PASSWORD,
             "folder":       "INBOX",
             "verify_ssl":   False,
@@ -442,7 +443,7 @@ def emailer():
             attachments = [(attachments, filename)]
         send_email(
             _GREENMAIL_SMTP_HOST, _GREENMAIL_SMTP_PORT,
-            from_addr, _GREENMAIL_USERNAME,
+            from_addr, _GREENMAIL_EMAIL,
             subject, attachments,
         )
 
