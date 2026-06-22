@@ -41,7 +41,7 @@ TRIGGER        = "FK3"          # same as Phase 1 / Phase 2
 _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
-_IMAPS_PORT    = 3993
+_IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
 _USERNAME      = "pdftester@test.local"
 _PASSWORD      = "pdftester"
 _FROM          = "sender@test.local"
@@ -60,6 +60,10 @@ def data_dir(cfg) -> Path:
 @pytest.fixture(autouse=True)
 def _reset_config(http, server):
     """Restore a clean pdf-dispatch state before each test in this module."""
+    # Clear email configs at start too — they persist on disk between runs
+    _state = http.get(f"{server}/api/state").json()
+    for _ec in _state.get("app_config", {}).get("email_configs", []):
+        http.delete(f"{server}/api/email/configs/{_ec['id']}")
     set_triggers(http, server, [{"value": TRIGGER, "page_handling": "keep"}])
     set_config(http, server,
                separator_placement="before",
@@ -144,10 +148,11 @@ class TestEmailConfigAPI:
                       json=_make_email_config())
         assert r.status_code == 200
         body = r.json()
-        assert body.get("ok")
+        assert body.get("ok"), f"Expected ok=True, got: {body}"
         configs = body.get("email_configs", [])
-        assert len(configs) == 1
-        ec = configs[0]
+        # find our config by name (list may contain other configs)
+        ec = next((c for c in configs if c.get("name") == "phase4-greenmail"), None)
+        assert ec is not None, f"Created config not found in response: {configs}"
         assert ec["host"]     == _IMAP_HOST
         assert ec["username"] == _USERNAME
         assert ec["action"]   == "read"
@@ -169,7 +174,10 @@ class TestEmailConfigAPI:
 
     def test_update_config(self, http, server):
         body = _create_config(http, server)
-        ec_id = body["email_configs"][0]["id"]
+        configs = body.get("email_configs", [])
+        ec = next((c for c in configs if c.get("name") == "phase4-greenmail"), None)
+        assert ec, f"Config not in response: {configs}"
+        ec_id = ec["id"]
         updated = _make_email_config(action="delete")
         updated["id"] = ec_id
         r = http.post(f"{server}/api/email/configs/{ec_id}", json=updated)
@@ -179,7 +187,10 @@ class TestEmailConfigAPI:
 
     def test_delete_config(self, http, server):
         body = _create_config(http, server)
-        ec_id = body["email_configs"][0]["id"]
+        configs = body.get("email_configs", [])
+        ec = next((c for c in configs if c.get("name") == "phase4-greenmail"), None)
+        assert ec, f"Config not in response: {configs}"
+        ec_id = ec["id"]
         r = http.delete(f"{server}/api/email/configs/{ec_id}")
         assert r.status_code == 200
         state = http.get(f"{server}/api/state").json()
@@ -190,7 +201,7 @@ class TestEmailConfigAPI:
         payload = {
             "name":       "test-conn",
             "host":       _IMAP_HOST,
-            "port":       _IMAPS_PORT,
+            "port":       _IMAP_PORT,
             "username":   _USERNAME,
             "password":   _PASSWORD,
             "folder":     "INBOX",
