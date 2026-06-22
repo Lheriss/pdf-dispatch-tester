@@ -59,7 +59,7 @@ GROUPS = [
     {
         "id": "phase1_adversarial",
         "label": "↳ Fichiers adversariaux",
-        "desc": "Corrompus, zéro-octet, faux PDF · 6 tests",
+        "desc": "Corrompus, zéro-octet, faux PDF, limites MB/pages · 8 tests",
         "args": ["tests/test_01_processing.py::TestAdversarial"],
         "available": True, "sub": True, "parent": "phase1",
     },
@@ -119,7 +119,7 @@ GROUPS = [
     {
         "id": "phase2_security",
         "label": "↳ Sécurité & détournements",
-        "desc": "Auth bypass, injection, SSRF, payloads · 24 tests",
+        "desc": "Auth bypass, injection, SSRF, payloads, limites · 27 tests",
         "args": [
             "tests/test_02_api.py::TestApiAuthBypass",
             "tests/test_02_api.py::TestApiFilenameInjection",
@@ -138,8 +138,30 @@ GROUPS = [
     {
         "id": "phase4",
         "label": "Phase 4 — Email IMAP",
-        "desc": "Ingestion par email",
-        "args": ["-m", "email"], "available": False,
+        "desc": "16 tests — config CRUD + pipeline complet SMTP→IMAP + limites",
+        "args": ["tests/test_04_email.py"],
+        "available": True,
+    },
+    {
+        "id": "phase4_config",
+        "label": "↳ Configuration email",
+        "desc": "CRUD /api/email/configs + test connexion · 6 tests",
+        "args": ["tests/test_04_email.py::TestEmailConfigAPI"],
+        "available": True, "sub": True, "parent": "phase4",
+    },
+    {
+        "id": "phase4_processing",
+        "label": "↳ Pipeline de traitement",
+        "desc": "SMTP→Greenmail→IMAP→output · 8 tests",
+        "args": ["tests/test_04_email.py::TestEmailProcessing"],
+        "available": True, "sub": True, "parent": "phase4",
+    },
+    {
+        "id": "phase4_limits",
+        "label": "↳ Limites ressources (email)",
+        "desc": "MAX_UPLOAD_MB et MAX_PAGES via email · 2 tests",
+        "args": ["tests/test_04_email.py::TestEmailLimits"],
+        "available": True, "sub": True, "parent": "phase4",
     },
     {
         "id": "phase5",
