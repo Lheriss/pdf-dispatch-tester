@@ -278,16 +278,6 @@ class TesterLogger:
 
     def close(self) -> None:
         """Flush and close log files. Called at end of session."""
-        # Copy Greenmail log into the session directory so it is
-        # included in the downloadable ZIP alongside pdfdispatch.log.
-        try:
-            _gm_src = Path("/volume1/docker/pdf_test/logs/greenmail/greenmail.log")
-            if _gm_src.exists():
-                import shutil
-                shutil.copy2(_gm_src, self.run_dir / "greenmail.log")
-                self._log.info(f"Greenmail log copied to {self.run_dir}/greenmail.log")
-        except Exception as _e:
-            self._log.warning(f"Could not copy greenmail.log: {_e}")
         self._log.info("")
         self._log.info(_DIVIDER)
         self._log.info(f"Session ended — logs in {self.run_dir}")

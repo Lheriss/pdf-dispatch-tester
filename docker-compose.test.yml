@@ -73,9 +73,4 @@ services:
       # Domain @greenmail matches the container hostname → no external DNS lookup.
       # Format: login:password@domain  →  IMAP user = login@domain
       GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false"
-    entrypoint: >
-      sh -c "java $$GREENMAIL_OPTS
-      -jar /opt/greenmail/greenmail-standalone.jar
-      2>&1 | tee /greenmail-logs/greenmail.log"
-    volumes:
-      - /volume1/docker/pdf_test/logs/greenmail:/greenmail-logs
+    # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
