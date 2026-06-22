@@ -99,11 +99,12 @@ def _make_email_config(
         "name":          "phase4-greenmail",
         "enabled":       True,
         "host":          _IMAP_HOST,
-        "port":          _IMAPS_PORT,
+        "port":          _IMAP_PORT,
         "username":      _USERNAME,
         "password":      _PASSWORD,
         "folder":        "INBOX",
         "verify_ssl":    False,
+        "use_ssl":       False,  # plain IMAP — Greenmail in Docker
         "action":        action,
         "poll_interval": 1,
     }
@@ -206,6 +207,7 @@ class TestEmailConfigAPI:
             "password":   _PASSWORD,
             "folder":     "INBOX",
             "verify_ssl": False,
+            "use_ssl":    False,
         }
         r = http.post(f"{server}/api/email/test", json=payload)
         assert r.status_code == 200, (
