@@ -72,9 +72,10 @@ services:
       # Single line — avoid YAML folding ambiguity with Portainer.
       # Domain @greenmail matches the container hostname → no external DNS lookup.
       # Format: login:password@domain  →  IMAP user = login@domain
-      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false" 
-    # Ports are only needed for external access from the host (optional).
-    # pdf-dispatch-test reaches greenmail at greenmail:3993 via the Docker network.
-    # ports:
-    #   - "3025:3025"   # SMTP
-    #   - "3993:3993"   # IMAPS
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false"
+    entrypoint: >
+      sh -c "java $$GREENMAIL_OPTS
+      -jar /opt/greenmail/greenmail-standalone.jar
+      2>&1 | tee /greenmail-logs/greenmail.log"
+    volumes:
+      - /volume1/docker/pdf_test/logs/greenmail:/greenmail-logs
