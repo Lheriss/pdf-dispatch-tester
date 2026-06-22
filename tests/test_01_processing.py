@@ -383,6 +383,45 @@ class TestAdversarial:
         _cleanup.append(r)
         assert len(r.error_files) == 1
 
+    def test_oversized_pages_via_drop_goes_to_error(self, dropper, http, server, _cleanup, log):
+        """
+        File-drop path: PDF with 60 pages exceeds MAX_PAGES=50.
+        process_file() must detect this BEFORE DPI rendering and move
+        the file to output/error/.  Validates that the limit is active
+        on the watchdog path, not just on the API upload path.
+        """
+        pages = [{"kind": "content", "text": f"Page {i}"} for i in range(60)]
+        r = dropper.drop(make_pdf(pages), prefix="bigpages")
+        _cleanup.append(r)
+        assert r.status == "error", (
+            f"60-page PDF must be rejected by MAX_PAGES=50 guard "
+            f"(got status={r.status!r}, error_files={r.error_files})"
+        )
+        assert len(r.error_files) == 1, (
+            f"Expected 1 file in error/, got {r.error_files}"
+        )
+        assert len(r.output_files) == 0
+
+    def test_oversized_size_via_drop_goes_to_error(self, dropper, http, server, _cleanup, log):
+        """
+        File-drop path: file > MAX_UPLOAD_MB=20 must be moved to error/.
+        Sends 21 MB (PDF header + null bytes — size matters, not content).
+        process_file() checks size after wait_until_stable(), before any
+        DPI rendering.  This is the same limit enforced by /api/upload but
+        now active for scanner deposits and email attachments too.
+        """
+        import uuid
+        oversized = b"%PDF-1.4\n" + b"\x00" * (21 * 1024 * 1024)
+        filename = f"big_{uuid.uuid4().hex[:8]}.pdf"
+        r = dropper.drop_raw(oversized, filename=filename)
+        _cleanup.append(r)
+        assert r.status == "error", (
+            f"21 MB file must be rejected by MAX_UPLOAD_MB=20 guard "
+            f"(got status={r.status!r})"
+        )
+        assert len(r.error_files) == 1
+        assert len(r.output_files) == 0
+
     def test_low_dpi_qr_detected_or_no_code(self, dropper, http, server, _cleanup, log):
         r = dropper.drop(make_low_dpi_qr(TRIGGER), prefix="low_dpi")
         _cleanup.append(r)
