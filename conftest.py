@@ -342,3 +342,139 @@ def _clean_data_on_start(request, log):
                 f"End-of-session: removed {len(residuals)} residual file(s) "
                 f"from /data/input/ ({', '.join(f.name for f in residuals)})"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 4 — Email / Greenmail fixtures
+#
+# Greenmail runs as a service in docker-compose.test.yml.
+# SMTP : greenmail:3025 (plain, no auth)
+# IMAPS: greenmail:3993 (SSL, self-signed cert → verify_ssl=False)
+# User : pdftester@test.local / pdftester
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GREENMAIL_SMTP_HOST = "greenmail"
+_GREENMAIL_SMTP_PORT = 3025
+_GREENMAIL_IMAP_HOST = "greenmail"
+_GREENMAIL_IMAPS_PORT = 3993
+_GREENMAIL_USERNAME  = "pdftester@test.local"
+_GREENMAIL_PASSWORD  = "pdftester"
+_GREENMAIL_FROM      = "sender@test.local"
+
+
+def _clear_email_configs(http, server) -> None:
+    """Delete all email configurations from pdf-dispatch."""
+    r = http.get(f"{server}/api/state")
+    for ec in r.json().get("app_config", {}).get("email_configs", []):
+        http.delete(f"{server}/api/email/configs/{ec['id']}")
+
+
+@pytest.fixture
+def email_inbox(http, server):
+    """
+    Creates a fresh pdf-dispatch email config pointing at Greenmail before
+    each test, and removes it afterwards.
+
+    A freshly-created config has last_poll=0, so pdf-dispatch's background
+    poller (which wakes every 30 s) will run the first IMAP poll within 30 s
+    — no manual trigger needed.
+
+    Usage:
+        def test_something(email_inbox, ...):
+            email_inbox()              # create config with defaults
+            # — or —
+            email_inbox(action="delete", default_trigger="FK3")
+    """
+    _clear_email_configs(http, server)
+
+    def _create(
+        action: str = "read",
+        default_trigger: str | None = None,
+        filter_from: str = "",
+        filter_subject: str = "",
+    ) -> dict:
+        payload: dict = {
+            "name":         "phase4-greenmail",
+            "enabled":      True,
+            "host":         _GREENMAIL_IMAP_HOST,
+            "port":         _GREENMAIL_IMAPS_PORT,
+            "username":     _GREENMAIL_USERNAME,
+            "password":     _GREENMAIL_PASSWORD,
+            "folder":       "INBOX",
+            "verify_ssl":   False,
+            "action":       action,
+            "poll_interval": 1,
+        }
+        if default_trigger:
+            payload["default_trigger"] = default_trigger
+        if filter_from:
+            payload["filter_from"] = filter_from
+        if filter_subject:
+            payload["filter_subject"] = filter_subject
+        r = http.post(f"{server}/api/email/configs", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+    yield _create
+
+    _clear_email_configs(http, server)
+
+
+@pytest.fixture
+def emailer():
+    """
+    Send emails with PDF attachments to Greenmail via plain SMTP.
+
+    Usage:
+        emailer(pdf_bytes)
+        emailer(pdf_bytes, filename="doc.pdf", subject="My subject")
+        emailer([(pdf1, "a.pdf"), (pdf2, "b.pdf")])
+    """
+    from helpers import send_email
+
+    def _send(
+        attachments,
+        filename: str = "test.pdf",
+        subject: str = "PDF test",
+        from_addr: str = _GREENMAIL_FROM,
+    ):
+        if isinstance(attachments, bytes):
+            attachments = [(attachments, filename)]
+        send_email(
+            _GREENMAIL_SMTP_HOST, _GREENMAIL_SMTP_PORT,
+            from_addr, _GREENMAIL_USERNAME,
+            subject, attachments,
+        )
+
+    return _send
+
+
+@pytest.fixture
+def output_watcher(cfg):
+    """
+    Watch output/ for new PDF files that appear after an email is processed.
+
+    Usage:
+        def test_something(output_watcher):
+            snap = output_watcher.snapshot()
+            # ... send email + create email_inbox config ...
+            result = output_watcher.wait(timeout=60)
+            assert result.status == "success"
+    """
+    from helpers import snapshot_output, wait_for_new_output
+    data_dir = Path(cfg.get("data_path", "/data"))
+
+    class _Watcher:
+        def __init__(self):
+            self._before: set = set()
+
+        def snapshot(self):
+            """Capture current output state (call before sending the email)."""
+            self._before = snapshot_output(data_dir)
+            return self
+
+        def wait(self, timeout: float = 60.0):
+            """Block until new files appear or timeout, then return EmailDropResult."""
+            return wait_for_new_output(data_dir, self._before, timeout=timeout)
+
+    return _Watcher()

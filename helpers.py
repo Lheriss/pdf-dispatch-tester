@@ -195,3 +195,93 @@ def assert_trigger(task: dict, expected: str | list[str]) -> None:
     assert sorted(task.get("triggers", [])) == sorted(expected), (
         f"Triggers: expected {expected}, got {task.get('triggers', [])}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Email / Phase 4 helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+import smtplib
+from dataclasses import dataclass, field
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+
+@dataclass
+class EmailDropResult:
+    """Files that appeared in output/ after an email was processed."""
+    output_files:  list[Path] = field(default_factory=list)
+    no_code_files: list[Path] = field(default_factory=list)
+    error_files:   list[Path] = field(default_factory=list)
+
+    @property
+    def status(self) -> str:
+        if self.error_files:
+            return "error"
+        if self.output_files or self.no_code_files:
+            return "success"
+        return "timeout"
+
+    @property
+    def all_files(self) -> list[Path]:
+        return self.output_files + self.no_code_files + self.error_files
+
+
+def send_email(
+    smtp_host: str,
+    smtp_port: int,
+    from_addr: str,
+    to_addr: str,
+    subject: str,
+    attachments: list[tuple[bytes, str]],
+    body: str = "Test email from pdf-dispatch-tester.",
+) -> None:
+    """Send one email with PDF attachment(s) via plain SMTP (no auth)."""
+    msg = MIMEMultipart()
+    msg["From"]    = from_addr
+    msg["To"]      = to_addr
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+    for pdf_bytes, filename in attachments:
+        part = MIMEApplication(pdf_bytes, _subtype="pdf")
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(part)
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as s:
+        s.sendmail(from_addr, to_addr, msg.as_bytes())
+
+
+def snapshot_output(data_dir: Path) -> set[Path]:
+    """Return all PDF files currently present anywhere under output/."""
+    out = data_dir / "output"
+    return set(out.rglob("*.pdf")) if out.exists() else set()
+
+
+def wait_for_new_output(
+    data_dir: Path,
+    before: set[Path],
+    timeout: float = 60.0,
+    poll: float = 1.0,
+) -> EmailDropResult:
+    """
+    Poll output/ until at least one new PDF appears (compared to *before*).
+    Give it up to *timeout* seconds, then return whatever was found.
+    """
+    import time
+    output   = data_dir / "output"
+    no_code  = output / "no_code"
+    error    = output / "error"
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        after = snapshot_output(data_dir)
+        new   = after - before
+        if new:
+            out_files = [f for f in new if error not in f.parents and no_code not in f.parents]
+            nc_files  = [f for f in new if no_code in f.parents]
+            err_files = [f for f in new if error in f.parents]
+            return EmailDropResult(out_files, nc_files, err_files)
+        time.sleep(poll)
+
+    return EmailDropResult()   # timeout — nothing appeared
