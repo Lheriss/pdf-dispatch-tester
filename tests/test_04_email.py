@@ -101,7 +101,7 @@ def _make_email_config(
         "enabled":       True,
         "host":          _IMAP_HOST,
         "port":          _IMAP_PORT,
-        "username":      _USERNAME,
+        "username":      _IMAP_USER,
         "password":      _PASSWORD,
         "folder":        "INBOX",
         "verify_ssl":    False,
@@ -121,7 +121,7 @@ def _make_email_config(
 def _send(attachments, subject="PDF test", from_addr=_FROM):
     if isinstance(attachments, bytes):
         attachments = [(attachments, "test.pdf")]
-    send_email(_SMTP_HOST, _SMTP_PORT, from_addr, _USERNAME, subject, attachments)
+    send_email(_SMTP_HOST, _SMTP_PORT, from_addr, _EMAIL_ADDR, subject, attachments)
 
 
 def _create_config(http, server, **kwargs) -> dict:
