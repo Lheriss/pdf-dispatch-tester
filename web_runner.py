@@ -272,7 +272,7 @@ GROUPS = [
         "id": "phase9",
         "label": "Phase 9 — Interface utilisateur (UI)",
         "desc": "Tests Playwright / Chromium · smoke, triggers, options, panneau email, régressions CSS",
-        "args": ["-m", "ui"],
+        "args": [],    # empty like all other parent groups — run via sub-groups
         "available": True,
     },
     {
