@@ -42,7 +42,7 @@ _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
 _IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
-_IMAP_USER     = "pdftester@greenmail"  # Greenmail 2.x: full email as IMAP login
+_IMAP_USER     = "pdftester"            # IMAP login (login:password@domain format)
 _EMAIL_ADDR    = "pdftester@greenmail"  # SMTP To: address
 _PASSWORD      = "pdftester"
 _FROM          = "sender@greenmail"

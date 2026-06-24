@@ -357,7 +357,7 @@ _GREENMAIL_SMTP_HOST = "greenmail"
 _GREENMAIL_SMTP_PORT = 3025
 _GREENMAIL_IMAP_HOST = "greenmail"
 _GREENMAIL_IMAPS_PORT = 3993
-_GREENMAIL_IMAP_USER = "pdftester@greenmail"  # Greenmail 2.x: IMAP login = full email
+_GREENMAIL_IMAP_USER = "pdftester"            # IMAP login (login:password@domain format)
 _GREENMAIL_EMAIL     = "pdftester@greenmail"  # full email address for SMTP To:
 _GREENMAIL_PASSWORD  = "pdftester"
 _GREENMAIL_FROM      = "sender@greenmail"

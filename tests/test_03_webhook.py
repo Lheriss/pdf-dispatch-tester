@@ -191,8 +191,12 @@ class TestWebhookPayloadStructure:
         set_triggers(http, server, _TRIGGERS)
         assert webhook_server.wait(1, timeout=12)
         b = webhook_server.calls[0]["body"]
-        assert b["status"]    == "success"
-        assert b["docs_count"] == 0
+        assert b["status"] == "success"
+        # A plain PDF with no codes goes to no_code/ → counts as 1 produced doc.
+        assert b["docs_count"] == 1
+        assert any("no_code" in d.get("path", "") for d in b["documents"]), (
+            f"Expected a no_code document, got: {b['documents']}"
+        )
 
     # ── Error payload ─────────────────────────────────────────────────────────
 
