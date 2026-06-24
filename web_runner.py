@@ -132,14 +132,50 @@ GROUPS = [
     {
         "id": "phase3",
         "label": "Phase 3 — Webhooks",
-        "desc": "Callbacks HTTP sortants avec signature HMAC",
-        "args": ["-m", "webhook"], "available": False,
+        "desc": "19 tests · payload, HMAC-SHA256, filtrage événements, retry",
+        "args": [],
+        "available": True,
+    },
+    {
+        "id": "phase3_payload",
+        "label": "↳ Structure du payload",
+        "desc": "8 champs obligatoires, types, valeurs success & error · 8 tests",
+        "args": ["tests/test_03_webhook.py::TestWebhookPayloadStructure"],
+        "available": True, "sub": True, "parent": "phase3",
+    },
+    {
+        "id": "phase3_hmac",
+        "label": "↳ Signature HMAC-SHA256",
+        "desc": "Absent sans secret · présent et vérifiable avec secret · 3 tests",
+        "args": ["tests/test_03_webhook.py::TestWebhookHmac"],
+        "available": True, "sub": True, "parent": "phase3",
+    },
+    {
+        "id": "phase3_filter",
+        "label": "↳ Filtrage par type d'événement",
+        "desc": "all / success / error — livraison et suppression · 6 tests",
+        "args": ["tests/test_03_webhook.py::TestWebhookFilter"],
+        "available": True, "sub": True, "parent": "phase3",
+    },
+    {
+        "id": "phase3_delivery",
+        "label": "↳ Livraison & gardes",
+        "desc": "webhook_enabled=False, URL vide · 2 tests",
+        "args": ["tests/test_03_webhook.py::TestWebhookDelivery"],
+        "available": True, "sub": True, "parent": "phase3",
+    },
+    {
+        "id": "phase3_retry",
+        "label": "↳ Retry sur 5xx (lent)",
+        "desc": "Réessai sur HTTP 503 avec receiver inline · 1 test",
+        "args": ["tests/test_03_webhook.py::TestWebhookRetry"],
+        "available": True, "sub": True, "parent": "phase3",
     },
     {
         "id": "phase4",
         "label": "Phase 4 — Email IMAP",
         "desc": "16 tests — config CRUD + pipeline complet SMTP→IMAP + limites",
-        "args": ["tests/test_04_email.py"],
+        "args": [],
         "available": True,
     },
     {
@@ -165,8 +201,29 @@ GROUPS = [
     },
     {
         "id": "phase5",
-        "label": "Phase 5 — File-drop avancé",
-        "desc": "Tests de robustesse filesystem",
+        "label": "Phase 5 — Sécurité",
+        "desc": "20 tests · injection config, password_enc, traversée dirs",
+        "args": [],
+        "available": True,
+    },
+    {
+        "id": "phase5_config_poison",
+        "label": "↳ Injection config (POST /api/config)",
+        "desc": "email_configs, stats, counter, dirs traversal · 12 tests",
+        "args": ["tests/test_06_security.py::TestConfigPoisoning"],
+        "available": True, "sub": True, "parent": "phase5",
+    },
+    {
+        "id": "phase5_secrets",
+        "label": "↳ Exposition password_enc",
+        "desc": "password_enc absent des réponses create/update/state · 8 tests",
+        "args": ["tests/test_06_security.py::TestPasswordEncExposure"],
+        "available": True, "sub": True, "parent": "phase5",
+    },
+    {
+        "id": "phase6",
+        "label": "Phase 6 — File-drop avancé",
+        "desc": "Tests de robustesse filesystem (à venir)",
         "args": ["-m", "filedrop"], "available": False,
     },
 ]
@@ -262,6 +319,10 @@ _HTML = """<!DOCTYPE html>
       {% for g in groups %}
         {% if g.id == 'phase1_placement' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase2' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase3' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase4' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase5' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase6' %}<div class="divider"></div>{% endif %}
         <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
              data-id="{{ g.id }}"
              {% if g.get('parent') %}data-parent="{{ g.get('parent') }}"{% endif %}
