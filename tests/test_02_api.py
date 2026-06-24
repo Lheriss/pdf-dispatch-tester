@@ -229,7 +229,13 @@ class TestApiConfigOverride:
         assert_page_range(task, 0, "pages 1\u20133")
 
     def test_override_page_handling_delete(self, http, server):
-        task = upload_and_wait(http, server, _pdf_before(), page_handling="delete")
+        # page_handling is not a standalone form field: it must be embedded
+        # inside the split_values JSON array sent with the upload.
+        import json as _json
+        sv = _json.dumps([{"value": TRIGGER,
+                           "page_handling": "delete",
+                           "case_sensitive": True}])
+        task = upload_and_wait(http, server, _pdf_before(), split_values=sv)
         assert_task_success(task, docs_count=2)
         assert_page_range(task, 1, "pages 3\u20134")
 

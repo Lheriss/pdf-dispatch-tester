@@ -29,6 +29,7 @@ from file_dropper import FileDropper
 from helpers import set_config, set_triggers
 from pdf_generator import (
     fixture_case_sensitivity,
+    make_pdf,
     fixture_glob,
     fixture_multi_trigger_same_page,
     fixture_no_code,
