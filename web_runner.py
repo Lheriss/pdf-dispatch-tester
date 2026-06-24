@@ -271,7 +271,7 @@ GROUPS = [
     {
         "id": "phase9",
         "label": "Phase 9 — Interface utilisateur (UI)",
-        "desc": "Tests Playwright / Chromium · rendu, i18n, persistance, régressions CSS",
+        "desc": "Tests Playwright / Chromium · smoke, triggers, options, panneau email, régressions CSS",
         "args": ["-m", "ui"],
         "available": True,
     },
@@ -280,6 +280,27 @@ GROUPS = [
         "label": "↳ Smoke (Phase 9a — infrastructure)",
         "desc": "7 tests · page charge, JS sain, stats numériques, i18n appliquée",
         "args": ["tests/test_09_ui.py::TestUiSmoke"],
+        "available": True, "sub": True, "parent": "phase9",
+    },
+    {
+        "id": "phase9c",
+        "label": "↳ Triggers CRUD (Phase 9c)",
+        "desc": "9 tests · ajout, config, suppression, persistance des déclencheurs",
+        "args": ["tests/test_09_ui.py::TestUiTriggers"],
+        "available": True, "sub": True, "parent": "phase9",
+    },
+    {
+        "id": "phase9e",
+        "label": "↳ Options (Phase 9e)",
+        "desc": "4 tests · placement séparateur, toggles, persistance",
+        "args": ["tests/test_09_ui.py::TestUiOptions"],
+        "available": True, "sub": True, "parent": "phase9",
+    },
+    {
+        "id": "phase9f",
+        "label": "↳ Panneau email — régressions (Phase 9f)",
+        "desc": "8 tests · radios action, SSL toggle Safari, dropdown, port auto-SSL",
+        "args": ["tests/test_09_ui.py::TestUiEmailPanel"],
         "available": True, "sub": True, "parent": "phase9",
     },
 ]
