@@ -226,6 +226,48 @@ GROUPS = [
         "desc": "Tests de robustesse filesystem (à venir)",
         "args": ["-m", "filedrop"], "available": False,
     },
+    {
+        "id": "phase7",
+        "label": "Phase 7 — Validation des entrées",
+        "desc": "37 tests · CRLF IMAP, bornes port/interval, barcode→fichier, log injection, n invalide",
+        "args": [],
+        "available": True,
+    },
+    {
+        "id": "phase7_crlf",
+        "label": "↳ Injection CRLF (champs IMAP)",
+        "desc": "host, username, folder — create + update · 7 tests",
+        "args": ["tests/test_08_input_validation.py::TestCrlfInjection"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    {
+        "id": "phase7_bounds",
+        "label": "↳ Bornes port & poll_interval",
+        "desc": "port 0/-1/>65535, poll_interval ≤0 · 11 tests",
+        "args": ["tests/test_08_input_validation.py::TestEmailConfigBounds"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    {
+        "id": "phase7_barcode",
+        "label": "↳ Barcode → nom de fichier",
+        "desc": "Path traversal, valeur très longue · 2 tests",
+        "args": ["tests/test_08_input_validation.py::TestBarcodeFilenameRegression"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    {
+        "id": "phase7_log",
+        "label": "↳ Injection dans /api/log",
+        "desc": "CRLF, ANSI, null byte, message légitime · 5 tests",
+        "args": ["tests/test_08_input_validation.py::TestLogInjection"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    {
+        "id": "phase7_n_param",
+        "label": "↳ Paramètre n invalide (/api/recent)",
+        "desc": "n=abc → 400, n=3.14 → 400, n vide, bornes · 5 tests",
+        "args": ["tests/test_08_input_validation.py::TestApiRecentNParam"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
 ]
 
 _lock = threading.Lock()
@@ -323,6 +365,7 @@ _HTML = """<!DOCTYPE html>
         {% if g.id == 'phase4' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase5' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase6' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase7' %}<div class="divider"></div>{% endif %}
         <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
              data-id="{{ g.id }}"
              {% if g.get('parent') %}data-parent="{{ g.get('parent') }}"{% endif %}
