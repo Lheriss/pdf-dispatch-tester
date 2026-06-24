@@ -38,6 +38,7 @@ services:
     # Pas de container_name : incompatible avec network_mode: service:
     restart: unless-stopped
     network_mode: "service:pdf-dispatch-test"
+    shm_size: '512m'   # Chromium (Playwright) needs >=256 MB shared memory
 
     depends_on:
       pdf-dispatch-test:

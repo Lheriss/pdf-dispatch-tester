@@ -6,6 +6,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright Chromium browser (separate layer — re-runs only when
+# the playwright package version in requirements.txt changes).
+# --with-deps also installs the necessary system libraries (libnss3, etc.).
+RUN playwright install --with-deps chromium
+
 # Copy test source code
 COPY pdf_generator.py .
 COPY file_dropper.py .

@@ -481,3 +481,130 @@ def output_watcher(cfg):
             return wait_for_new_output(data_dir, self._before, timeout=timeout)
 
     return _Watcher()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Playwright / UI fixtures  (Phase 9)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _require_playwright():
+    """Import playwright or skip the calling test if not installed."""
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
+    except ImportError:
+        pytest.skip("playwright not installed — run: playwright install chromium")
+
+
+@pytest.fixture(scope="session")
+def _pw():
+    """Playwright runtime — started once per session, shared by all UI tests."""
+    _require_playwright()
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        yield p
+
+
+@pytest.fixture(scope="session")
+def _pw_browser(_pw):
+    """
+    Headless Chromium instance shared across the whole test session.
+
+    Launched once; individual tests get isolated contexts (separate cookies,
+    localStorage, network state) via the ui_page fixture.
+    """
+    browser = _pw.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",            # required inside Docker
+            "--disable-dev-shm-usage", # avoid /dev/shm exhaustion in containers
+        ],
+    )
+    yield browser
+    browser.close()
+
+
+@pytest.fixture
+def ui_page(_pw_browser, server, api_key):
+    """
+    Isolated browser page for one UI test.
+
+    Lifecycle:
+      1. Open a fresh BrowserContext (no shared state with other tests).
+      2. Inject X-API-Key on every HTTP request (page load + all fetch calls).
+      3. Navigate to "/" and wait for the initial refresh() cycle to finish:
+         #st-proc must contain at least one digit.
+      4. Attach page._js_errors (list of uncaught JS exceptions).
+      5. Close the context after the test, releasing Chromium memory.
+
+    Usage::
+
+        def test_something(ui_page):
+            assert ui_page.locator("#upload-zone").is_visible()
+            assert ui_page._js_errors == []
+    """
+    ctx = _pw_browser.new_context(
+        base_url=server,
+        extra_http_headers={"X-API-Key": api_key},
+    )
+    ctx.set_default_timeout(20_000)
+    page = ctx.new_page()
+
+    _js_errors: list[str] = []
+    page.on("pageerror", lambda err: _js_errors.append(str(err)))
+    page._js_errors = _js_errors  # type: ignore[attr-defined]
+
+    page.goto("/", wait_until="domcontentloaded")
+    page.locator("#st-proc").wait_for(state="visible")
+    page.wait_for_function(
+        "() => /\\d/.test(document.getElementById('st-proc')?.textContent ?? '')"
+    )
+
+    yield page
+
+    ctx.close()
+
+
+# ── UI helpers — importable from test files ───────────────────────────────────
+# Usage in test files:
+#   from conftest import wait_for_refresh, reload_and_wait
+
+def wait_for_refresh(page, *, timeout: int = 8_000) -> None:
+    """
+    Block until the next successful GET /api/state response arrives.
+
+    Call this after any UI action that modifies server state so that
+    refresh() has had a chance to pull the updated state before assertions.
+
+    Example::
+
+        ui_page.locator("#lang-btn-en").click()
+        wait_for_refresh(ui_page)
+        assert "Triggers" in ui_page.locator("#trigger-list").inner_text()
+    """
+    with page.expect_response(
+        lambda r: "/api/state" in r.url and r.status == 200,
+        timeout=timeout,
+    ):
+        pass
+
+
+def reload_and_wait(page) -> None:
+    """
+    Full page reload + wait for the first refresh() cycle.
+
+    Use this to verify that a setting was persisted to disk (not just held
+    in the in-memory cfg JS object), since a reload re-fetches everything.
+
+    Example::
+
+        ui_page.locator("#lang-btn-fr").click()
+        wait_for_refresh(ui_page)
+        reload_and_wait(ui_page)
+        # Now assert on persisted state
+    """
+    page.reload(wait_until="domcontentloaded")
+    page.locator("#st-proc").wait_for(state="visible")
+    page.wait_for_function(
+        "() => /\\d/.test(document.getElementById('st-proc')?.textContent ?? '')"
+    )
+

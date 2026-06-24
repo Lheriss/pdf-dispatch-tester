@@ -268,6 +268,20 @@ GROUPS = [
         "args": ["tests/test_08_input_validation.py::TestApiRecentNParam"],
         "available": True, "sub": True, "parent": "phase7",
     },
+    {
+        "id": "phase9",
+        "label": "Phase 9 — Interface utilisateur (UI)",
+        "desc": "Tests Playwright / Chromium · rendu, i18n, persistance, régressions CSS",
+        "args": ["-m", "ui"],
+        "available": True,
+    },
+    {
+        "id": "phase9_smoke",
+        "label": "↳ Smoke (Phase 9a — infrastructure)",
+        "desc": "7 tests · page charge, JS sain, stats numériques, i18n appliquée",
+        "args": ["tests/test_09_ui.py::TestUiSmoke"],
+        "available": True, "sub": True, "parent": "phase9",
+    },
 ]
 
 _lock = threading.Lock()
@@ -366,6 +380,7 @@ _HTML = """<!DOCTYPE html>
         {% if g.id == 'phase5' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase6' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase7' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase9' %}<div class="divider"></div>{% endif %}
         <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
              data-id="{{ g.id }}"
              {% if g.get('parent') %}data-parent="{{ g.get('parent') }}"{% endif %}

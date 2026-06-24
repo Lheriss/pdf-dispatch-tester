@@ -14,3 +14,6 @@ pypdf>=4.0
 # Test runner
 pytest>=8.0
 pytest-html>=4.0
+
+# Browser automation (Phase 9 — UI tests)
+playwright>=1.44
