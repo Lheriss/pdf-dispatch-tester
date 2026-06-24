@@ -208,6 +208,7 @@ class WebhookServer:
 
     def shutdown(self):
         self._srv.shutdown()
+        self._srv.server_close()  # release the socket immediately
 
 
 @pytest.fixture
@@ -241,6 +242,7 @@ def webhook_server(cfg, http, server, log) -> WebhookServer:
 
     http.post(f"{server}/api/config", json={"webhook_enabled": False, "webhook_url": ""})
     srv.shutdown()
+    srv.server_close()  # release socket so next test can bind the same port
 
 
 @pytest.fixture(scope="session", autouse=True)
