@@ -71,7 +71,10 @@ services:
     environment:
       # Single line — avoid YAML folding ambiguity with Portainer.
       # Domain @greenmail matches the container hostname → no external DNS lookup.
-      # Format: login:password@domain  →  IMAP user = login@domain
-      # Greenmail 2.x format: email@domain:password  (NOT login:password@domain which was 1.x)
+      # Format Greenmail 2.x : login:password@domain
+      #   login   = local-part only  (pdftester)
+      #   domain  = after the @      (@greenmail)
+      #   IMAP LOGIN uses login only (not the full email address)
+      # → IMAP user = pdftester  /  password = pdftester  /  email = pdftester@greenmail
       GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false"
     # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
