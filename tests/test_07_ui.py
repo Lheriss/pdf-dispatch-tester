@@ -118,7 +118,7 @@ def _open_settings_section(page) -> None:
     """Ouvre #sbody si pas encore ouvert et attend que loadConfig() ait peuplé cfg."""
     if "open" not in (page.locator("#sbody").get_attribute("class") or ""):
         page.locator(".settings-header").click()
-    page.wait_for_function("() => !!(window.cfg && window.cfg.loaded)")
+    page.wait_for_function("() => typeof cfg !== 'undefined' && !!(cfg && cfg.loaded)")
 
 
 def _open_options_section(page) -> None:
