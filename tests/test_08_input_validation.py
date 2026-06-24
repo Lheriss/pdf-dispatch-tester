@@ -284,13 +284,27 @@ class TestLogInjection:
         )
 
     def test_crlf_stripped_from_log_message(self, http, server):
-        """CRLF sequence must not produce a second log event."""
+        """CRLF sequence must not produce a second log event.
+
+        The app replaces \r and \n with a space, so the stored message is
+        '{marker} FAKE_CR_ENTRY' (one combined event).  What matters for
+        security is that no SEPARATE event exists with 'FAKE_CR_ENTRY' as
+        its standalone content — i.e. the CRLF did not split the input
+        into two distinct log entries.
+        """
         marker = "SECURITY_TEST_CR_" + "Y" * 8
         self._post_log(http, server, f"{marker}\r\nFAKE_CR_ENTRY")
         events = self._last_events(http, server, 20)
         messages = [e.get("message", "") for e in events]
-        assert not any("FAKE_CR_ENTRY" in m for m in messages), (
-            "CR-injected entry appeared in log"
+        # The combined message ("{marker} FAKE_CR_ENTRY") is acceptable;
+        # a standalone "FAKE_CR_ENTRY" event would mean injection succeeded.
+        assert not any(
+            m.strip() == "FAKE_CR_ENTRY" or m.startswith("FAKE_CR_ENTRY\n")
+            for m in messages
+        ), "CR injection created a standalone log entry for 'FAKE_CR_ENTRY'"
+        # Also verify the sanitised marker IS present (the event was logged)
+        assert any(marker in m for m in messages), (
+            f"Sanitised log event with marker '{marker}' not found"
         )
 
     def test_ansi_escape_stripped_from_log_message(self, http, server):

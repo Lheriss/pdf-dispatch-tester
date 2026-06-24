@@ -58,6 +58,30 @@ def data_dir(cfg) -> Path:
     return Path(p)
 
 
+_GREENMAIL_API = "http://greenmail:8080"
+
+
+def _purge_greenmail():
+    """Delete all messages from Greenmail via its REST API.
+
+    Prevents email accumulation across tests: without this, each new
+    email config (processed_ids=[]) would reprocess all previous tests'
+    emails, producing stale output at unpredictable times.
+
+    Greenmail 2.x API: DELETE /api/user/{email}/messages
+    Silent no-op if Greenmail API is unavailable (e.g. local dev run).
+    """
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{_GREENMAIL_API}/api/user/{_EMAIL_ADDR}/messages",
+            method="DELETE",
+        )
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass   # non-fatal — tests may be slightly flaky but won't crash
+
+
 @pytest.fixture(autouse=True)
 def _reset_config(http, server):
     """Restore a clean pdf-dispatch state before each test in this module."""
@@ -65,6 +89,9 @@ def _reset_config(http, server):
     _state = http.get(f"{server}/api/state").json()
     for _ec in _state.get("app_config", {}).get("email_configs", []):
         http.delete(f"{server}/api/email/configs/{_ec['id']}")
+    # Purge Greenmail inbox so emails from previous tests are not reprocessed
+    # by subsequent configs (each new config starts with processed_ids=[]).
+    _purge_greenmail()
     set_triggers(http, server, [{"value": TRIGGER, "page_handling": "keep"}])
     set_config(http, server,
                separator_placement="before",
@@ -240,11 +267,19 @@ class TestEmailProcessing:
     """
 
     def test_plain_pdf_goes_to_no_code(self, http, server, data_dir):
-        """PDF with no trigger code → output/no_code/."""
+        """PDF with no trigger code → output/no_code/.
+
+        Timeout is 150 s to absorb a potential ZXING JVM cold start on the
+        first barcode scan of a fresh pdf-dispatch session (the JVM can take
+        60–90 s to initialise when no previous scan has warmed it up).
+        """
         before = snapshot_output(data_dir)
         _send(_plain_pdf())
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
-        assert result.status != "timeout", "No output after 90 s — check Greenmail is running"
+        result = _poll_result(http, server, data_dir, before, timeout=150.0)
+        assert result.status != "timeout", (
+            "No output after 150 s — ZXING JVM cold start exceeded threshold "
+            "or email pipeline is broken; check pdfdispatch.log"
+        )
         assert len(result.no_code_files) >= 1
         assert len(result.output_files) == 0
 
