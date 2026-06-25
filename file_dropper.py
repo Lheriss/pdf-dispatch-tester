@@ -249,8 +249,8 @@ class FileDropper:
         Detection strategy:
           a) File disappears from /data/input/ (normal processing / error / move).
           b) A terminal event (error, ✗, Timeout) for this filename appears in
-             /api/state — covers zero-byte files that hit stabilisation timeout
-             and are never moved out of input/.
+             /api/state — fast-path for error events logged before the file
+             disappears from input/ (e.g. stabilisation timeout + move_to_error).
         """
         input_path = self.input_dir / filename
         deadline   = time.monotonic() + timeout
@@ -379,9 +379,12 @@ class FileDropper:
         def ls(d: Path) -> set[Path]:
             return set(d.glob("**/*.pdf")) if d.exists() else set()
 
-        no_code = ls(self.no_code_dir)
-        error   = ls(self.error_dir)
-        output  = ls(self.output_dir) - no_code - error
+        no_code   = ls(self.no_code_dir)
+        error     = ls(self.error_dir)
+        processed = ls(self.output_dir / "processed")
+        # Exclude no_code/, error/, AND processed/ from output_files so that
+        # archived source files (delete_source=True) don't appear as output docs.
+        output    = ls(self.output_dir) - no_code - error - processed
 
         return {"output": output, "no_code": no_code, "error": error}
 
