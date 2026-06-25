@@ -10,14 +10,15 @@ Les tests s'exécutent contre une **instance réelle et déployée** de pdf-disp
 
 | Phase | Fichier | Ce qui est testé | Serveur | Filesystem | Greenmail | Browser |
 |-------|---------|-----------------|---------|-----------|-----------|---------|
-| 0 | `test_00_generator.py` | Générateur de PDFs (auto-tests) | ❌ | ❌ | ❌ | ❌ |
+| 0 | `test_00_generator.py` | Générateur de PDFs (outil interne) | ❌ | ❌ | ❌ | ❌ |
 | 1 | `test_01_processing.py` | Moteur de splitting — placement × page_handling, glob, casse, adversarial, cas limites | ✅ | ✅ | ❌ | ❌ |
-| 2 | `test_02_api.py` | Endpoints REST (upload, tâches, config, sécurité) | ✅ | ❌ | ❌ | ❌ |
+| 2 | `test_02_api.py` | Endpoints REST — upload, tâches, config, sécurité | ✅ | ❌ | ❌ | ❌ |
 | 3 | `test_03_webhook.py` | Webhook sortant, payload, HMAC | ✅ | ❌ | ❌ | ❌ |
 | 4 | `test_04_email.py` | Ingestion IMAP — pipeline SMTP → Greenmail → pdf-dispatch → /data | ✅ | ✅ | ✅ | ❌ |
-| 6 | `test_06_security.py` | Sécurité API — injection config, traversal, clés | ✅ | ❌ | ❌ | ❌ |
-| 7 | `test_08_input_validation.py` | Validation entrées — CRLF, bornes port, log injection | ✅ | ❌ | ❌ | ❌ |
-| 9 | `test_09_ui.py` | Interface web — Playwright/Chromium headless | ✅ | ❌ | ❌ | ✅ |
+| 5 | `test_05_security.py` | Sécurité API — injection config, traversal, `password_enc` | ✅ | ❌ | ❌ | ❌ |
+| 6 | `test_06_input_validation.py` | Validation entrées — CRLF, bornes port, log injection, paramètre `n` | ✅ | ❌ | ❌ | ❌ |
+| 7 | `test_07_ui.py` | Interface web — Playwright/Chromium headless | ✅ | ❌ | ❌ | ✅ |
+| 8 | `test_08_filedrop.py` | File-drop filesystem — page-count, corruption config, robustesse répertoires | ✅ | ✅ | ❌ | ❌ |
 
 ---
 
@@ -84,7 +85,7 @@ Vérifier :
 
 Le tester démarre en `WEB_MODE=1` par défaut : une interface Flask reste active en continu. Vous pouvez y déclencher n'importe quelle phase ou sous-groupe de tests d'un clic.
 
-- **Phase 9 (Playwright UI)** nécessite que Chromium soit installé dans le container.  
+- **Phase 7 (Playwright UI)** nécessite que Chromium soit installé dans le container.  
   Ce n'est le cas qu'après un **rebuild de l'image tester** — opération requise si le `Dockerfile` a changé.
 
 ### Quand rebuild vs simple re-pull
@@ -125,15 +126,33 @@ Greenmail est démarré automatiquement dans le stack. Aucun compte email extern
 
 > Le premier scan de barcode dans une session fraîche peut prendre 60–90 s (démarrage à froid de la JVM ZXING). Les tests email les plus lents ont un timeout de 150 s pour absorber ce cas.
 
-### Phase 9 — UI Playwright
+### Phase 5 — Sécurité
+
+Teste la résistance de `POST /api/config` aux tentatives d'injection (clés internes, champs non prévus, valeurs mal typées) et vérifie que `password_enc` n'est jamais exposé par un endpoint. Aucun accès filesystem requis.
+
+### Phase 6 — Validation des entrées
+
+Valide que les champs texte IMAP (`host`, `username`, `folder`) rejettent les caractères CRLF, que `port` est borné à 1–65535, que `poll_interval` est ≥ 1, que le paramètre `n` de `/api/recent` retourne HTTP 400 sur valeur non entière et que les messages loggés via `/api/log` sont assainis.
+
+### Phase 7 — UI Playwright
 
 Nécessite Chromium headless dans le container (installé via `playwright install --with-deps chromium` dans le `Dockerfile`). Le container tester a `shm_size: 512m` pour éviter les crashs Chromium.
 
 **Sous-groupes disponibles dans l'UI :**
-- `phase9_smoke` — 7 tests · page charge, JS sain, stats numériques, i18n appliquée
-- `phase9c` — 9 tests · triggers CRUD (add, config, delete, persistence)
-- `phase9e` — 4 tests · options (séparateur, toggles, persistence)
-- `phase9f` — 8 tests · panneau email (radios, SSL toggle Safari, dropdown)
+- `phase7_smoke` — 7 tests · chargement page, JS sain, stats numériques, i18n, version
+- `phase7_triggers` — 9 tests · triggers CRUD (ajout, config, suppression, persistance)
+- `phase7_options` — 4 tests · séparateur placement, suppression source
+- `phase7_email` — 8 tests · panneau email (radios, SSL toggle Safari, dropdown triggers)
+- `phase7_separator` — 5 tests · radios séparateur, exclusion mutuelle, labels i18n
+- `phase7_webhook` — 10 tests · toggle, config masquée/visible, events select, persistance
+- `phase7_dirs` — 4 tests · panneau dossiers, chemins, i18n
+- `phase7_apikey` — 6 tests · présence clé, masquage par défaut, toggle show/hide
+- `phase7_tokens` — 5 tests · liste tokens, séparateurs, ajout texte libre
+
+
+### Phase 8 — File-drop filesystem
+
+Seule phase où le tester accède directement aux fichiers produits (via `pypdf`) en complément des événements `/api/state`. Vérifie le nombre de pages de chaque document produit, la survie du service après corruption de `.splitter_config.json` (JSON invalide, champs manquants, types incorrects), la persistance de chaque changement de config sur disque, et la robustesse du watchdog après suppression ou renommage des répertoires de sortie.
 
 ---
 
@@ -155,14 +174,15 @@ pdf-dispatch-tester/
 ├── pytest.ini
 ├── requirements.txt                  ← requests, flask, playwright, pytest, pypdf…
 └── tests/
-    ├── test_00_generator.py          ← Phase 0  : auto-tests du générateur PDF
-    ├── test_01_processing.py         ← Phase 1  : moteur de splitting (39 tests)
-    ├── test_02_api.py                ← Phase 2  : API REST (55+ tests)
-    ├── test_03_webhook.py            ← Phase 3  : webhook (19 tests)
-    ├── test_04_email.py              ← Phase 4  : ingestion IMAP via Greenmail (16 tests)
-    ├── test_06_security.py           ← Phase 6  : sécurité API (20 tests)
-    ├── test_08_input_validation.py   ← Phase 7  : validation entrées (37 tests)
-    └── test_09_ui.py                 ← Phase 9  : UI Playwright (smoke + triggers + options + email)
+    ├── test_00_generator.py          ← Phase 0 : auto-tests du générateur PDF
+    ├── test_01_processing.py         ← Phase 1 : moteur de splitting (39 tests)
+    ├── test_02_api.py                ← Phase 2 : API REST (55 tests)
+    ├── test_03_webhook.py            ← Phase 3 : webhook
+    ├── test_04_email.py              ← Phase 4 : ingestion IMAP via Greenmail
+    ├── test_05_security.py           ← Phase 5 : sécurité API
+    ├── test_06_input_validation.py   ← Phase 6 : validation entrées
+    ├── test_07_ui.py                 ← Phase 7 : UI Playwright (9 sous-groupes)
+    └── test_08_filedrop.py           ← Phase 8 : file-drop filesystem (15 tests)
 ```
 
 ---
@@ -170,3 +190,4 @@ pdf-dispatch-tester/
 ## Token GitHub
 
 Le token d'accès GitHub utilisé par Portainer pour puller ce dépôt doit être **rotaté avant toute mise en public** du repo.
+
