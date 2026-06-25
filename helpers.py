@@ -29,14 +29,22 @@ def poll_task(
 
     Returns the task dict on success.
     Raises TimeoutError if the task does not complete within `timeout` seconds.
+
+    ConnectionError is caught and retried transparently: pdf-dispatch may be
+    restarting after an OOM kill (exit 137) and should recover within a few
+    seconds thanks to Docker's restart: unless-stopped policy.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        r = http.get(f"{server}/api/tasks/{task_id}")
-        r.raise_for_status()
-        task = r.json()["task"]
-        if task["status"] in ("success", "error"):
-            return task
+        try:
+            r = http.get(f"{server}/api/tasks/{task_id}", timeout=10.0)
+            r.raise_for_status()
+            task = r.json()["task"]
+            if task["status"] in ("success", "error"):
+                return task
+        except requests.exceptions.ConnectionError:
+            # pdf-dispatch may be restarting; wait and retry
+            pass
         time.sleep(interval)
     raise TimeoutError(
         f"Task {task_id!r} did not reach a terminal state within {timeout:.0f}s"
