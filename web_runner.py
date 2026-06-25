@@ -305,12 +305,50 @@ GROUPS = [
         "args": ["tests/test_07_ui.py::TestUiEmailPanel"],
         "available": True, "sub": True, "parent": "phase7",
     },
-    # ─── Phase 8 ─── File-drop avancé (à venir) ───────────────────────────
+    # ─── Phase 7d ─── Séparateur ──────────────────────────────────────────
+    {
+        "id": "phase7_separator",
+        "label": "↳ Séparateur — radios et exclusion mutuelle",
+        "desc": "Heading i18n, 2 radios, exclusion mutuelle, labels traduits · 5 tests",
+        "args": ["tests/test_07_ui.py::TestUiSeparator"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    # ─── Phase 7g ─── Webhook ──────────────────────────────────────────────
+    {
+        "id": "phase7_webhook",
+        "label": "↳ Webhook HTTP — panneau et persistance",
+        "desc": "Toggle, config masquée/visible, events select, URL, persistance · 10 tests",
+        "args": ["tests/test_07_ui.py::TestUiWebhook"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
+    # ─── Phase 8 ─── File-drop avancé ──────────────────────────────────────
     {
         "id": "phase8",
         "label": "Phase 8 — File-drop avancé",
-        "desc": "Robustesse filesystem, config corrompue, watchdog (à venir)",
-        "args": ["-m", "filedrop"], "available": False,
+        "desc": "Vérification page-count, corruption config, robustesse répertoires · 15 tests",
+        "args": [],
+        "available": True,
+    },
+    {
+        "id": "phase8_pagecounts",
+        "label": "↳ Vérification page-count (API + filesystem)",
+        "desc": "Dual-check événements /api/state + pypdf sur les fichiers produits · 6 tests",
+        "args": ["tests/test_08_filedrop.py::TestFiledropPageCounts"],
+        "available": True, "sub": True, "parent": "phase8",
+    },
+    {
+        "id": "phase8_config",
+        "label": "↳ Corruption de .splitter_config.json",
+        "desc": "Config manquante, JSON invalide, types incorrects, restauration API · 5 tests",
+        "args": ["tests/test_08_filedrop.py::TestConfigCorruption"],
+        "available": True, "sub": True, "parent": "phase8",
+    },
+    {
+        "id": "phase8_dirs",
+        "label": "↳ Robustesse des répertoires",
+        "desc": "Renommage trigger subdir, suppression no_code/ et error/ · 4 tests",
+        "args": ["tests/test_08_filedrop.py::TestDirectoryRobustness"],
+        "available": True, "sub": True, "parent": "phase8",
     },
 ]
 
@@ -410,6 +448,7 @@ _HTML = """<!DOCTYPE html>
         {% if g.id == 'phase5' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase6' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase7' %}<div class="divider"></div>{% endif %}
+        {% if g.id == 'phase7_separator' %}<div class="divider"></div>{% endif %}
         {% if g.id == 'phase8' %}<div class="divider"></div>{% endif %}
         <div class="group {% if g.get('sub') %}sub {% endif %}{% if not g.available %}disabled{% endif %}"
              data-id="{{ g.id }}"

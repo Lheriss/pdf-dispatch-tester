@@ -1,5 +1,5 @@
 """
-tests/test_09_ui.py — Phase 9 : Tests de l'interface utilisateur (Playwright).
+tests/test_07_ui.py — Phase 7 : Tests de l'interface utilisateur (Playwright).
 
 Structure :
 
@@ -509,8 +509,7 @@ class TestUiEmailPanel:
             timeout=3_000,
         )
         assert not use_ssl.is_checked()
-        port_input.triple_click()
-        port_input.fill("993")
+        port_input.fill("993")  # fill() efface (triple_click inexistant)
         port_input.dispatch_event("input")
         ui_page.wait_for_function(
             "() => document.getElementById('em-use-ssl').checked",
@@ -519,14 +518,235 @@ class TestUiEmailPanel:
         assert use_ssl.is_checked()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phases 9g–9i — à implémenter
+# Helper — panneau Webhook
 # ─────────────────────────────────────────────────────────────────────────────
 
-# @pytest.mark.ui
-# class TestUiWebhook: ...   (Phase 9g)
-#
-# @pytest.mark.ui
-# class TestUiUpload: ...    (Phase 9h)
-#
-# @pytest.mark.ui
-# class TestUiCrossPanel: ...  (Phase 9i)
+def _open_webhook_section(page) -> None:
+    """Ouvre #webhook-panel.
+
+    #webhook-panel-btn est dans #options-body (meme niveau que #email-panel-btn).
+    Prerequis: #sbody ouvert via _open_settings_section.
+    """
+    _open_options_section(page)
+    panel = page.locator("#webhook-panel")
+    if not panel.is_visible():
+        page.locator("#webhook-panel-btn").click()
+        panel.wait_for(state="visible")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 7d — Separateur : labels et exclusion mutuelle
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.ui
+class TestUiSeparator:
+    """Phase 7d — Section separator placement dans Options.
+
+    TestUiOptions verifie la persistance. Cette classe verifie
+    les proprietes structurelles : radios presents, labels traduits,
+    exclusion mutuelle du groupe radio.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_sep(self, http, server):
+        from helpers import set_config
+        set_config(http, server, separator_placement="before")
+        yield
+        set_config(http, server, separator_placement="before")
+
+    def test_separator_heading_translated(self, ui_page):
+        """Le titre Separator placement est affiche en texte traduit."""
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        el = ui_page.locator("[data-i18n='options.separator_placement']")
+        assert el.is_visible()
+        text = el.inner_text().strip()
+        assert text and "options.separator_placement" not in text, (
+            f"Cle i18n brute visible : {text!r}"
+        )
+
+    def test_both_separator_radios_present(self, ui_page):
+        """#opt-sep-before et #opt-sep-after sont presents dans le DOM."""
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        assert ui_page.locator("#opt-sep-before").count() == 1
+        assert ui_page.locator("#opt-sep-after").count() == 1
+
+    def test_separator_before_default(self, ui_page):
+        """Apres reset (placement=before), before est coche et after decoche."""
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert ui_page.locator("#opt-sep-before").is_checked()
+        assert not ui_page.locator("#opt-sep-after").is_checked()
+
+    def test_separator_radios_mutually_exclusive(self, ui_page):
+        """Cliquer after decoche automatiquement before."""
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert ui_page.locator("#opt-sep-before").is_checked()
+        ui_page.locator("label:has(#opt-sep-after)").click()
+        wait_for_refresh(ui_page)
+        assert ui_page.locator("#opt-sep-after").is_checked(), (
+            "'after' doit etre coche apres clic"
+        )
+        assert not ui_page.locator("#opt-sep-before").is_checked(), (
+            "'before' doit etre decoche — exclusion mutuelle"
+        )
+
+    def test_separator_radio_labels_translated(self, ui_page):
+        """Les labels des radios affichent du texte traduit, pas des cles brutes."""
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        for key in ("options.separator_before", "options.separator_after"):
+            els = ui_page.locator(f"[data-i18n='{key}']")
+            if els.count() > 0:
+                text = els.first.inner_text().strip()
+                assert key not in text, f"Cle i18n brute : {text!r}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 7g — Webhook : configuration via l'UI
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.ui
+class TestUiWebhook:
+    """Phase 7g — Panneau Webhook HTTP.
+
+    #webhook-panel-btn est dans #options-body (meme niveau que #email-panel-btn).
+    _open_webhook_section() gere l'ouverture complete.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_webhook(self, http, server):
+        http.post(f"{server}/api/config", json={
+            "webhook_enabled": False,
+            "webhook_url":     "",
+            "webhook_events":  "all",
+        })
+        yield
+        http.post(f"{server}/api/config", json={
+            "webhook_enabled": False,
+            "webhook_url":     "",
+            "webhook_events":  "all",
+        })
+
+    def test_webhook_panel_opens(self, ui_page):
+        """#webhook-panel-btn ouvre #webhook-panel."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        assert ui_page.locator("#webhook-panel").is_visible()
+
+    def test_webhook_initially_disabled(self, ui_page):
+        """#opt-webhook-enabled est decoche par defaut."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert not ui_page.locator("#opt-webhook-enabled").is_checked()
+
+    def test_webhook_config_hidden_when_disabled(self, ui_page):
+        """#webhook-config est masque quand webhook desactive."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert not ui_page.locator("#webhook-config").is_visible()
+
+    def test_webhook_enable_reveals_config(self, ui_page):
+        """Activer le toggle rend #webhook-config visible."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.wait_for_function(
+            "() => document.getElementById('webhook-config').style.display === 'block'",
+            timeout=3_000,
+        )
+        assert ui_page.locator("#webhook-config").is_visible()
+
+    def test_webhook_disable_hides_config(self, ui_page):
+        """Desactiver le toggle masque a nouveau #webhook-config."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.wait_for_function(
+            "() => document.getElementById('webhook-config').style.display === 'block'",
+            timeout=3_000,
+        )
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.wait_for_function(
+            "() => document.getElementById('webhook-config').style.display !== 'block'",
+            timeout=3_000,
+        )
+        assert not ui_page.locator("#webhook-config").is_visible()
+
+    def test_webhook_events_has_three_options(self, ui_page):
+        """#opt-webhook-events contient exactement 3 options : all/success/error."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.locator("#webhook-config").wait_for(state="visible")
+        opts = ui_page.locator("#opt-webhook-events option")
+        assert opts.count() == 3, f"Attendu 3 options, obtenu {opts.count()}"
+        values = {opts.nth(i).get_attribute("value") for i in range(3)}
+        assert values == {"all", "success", "error"}, f"Options incorrectes : {values}"
+
+    def test_webhook_events_default_is_all(self, ui_page):
+        """Apres reset, #opt-webhook-events vaut 'all'."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.locator("#webhook-config").wait_for(state="visible")
+        assert ui_page.locator("#opt-webhook-events").input_value() == "all"
+
+    def test_webhook_url_field_accepts_input(self, ui_page):
+        """Saisir une URL dans #opt-webhook-url la reflète immediatement."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.locator("#webhook-config").wait_for(state="visible")
+        url = "https://hooks.example.com/test"
+        ui_page.locator("#opt-webhook-url").fill(url)
+        assert ui_page.locator("#opt-webhook-url").input_value() == url
+
+    def test_webhook_enabled_persists_after_reload(self, ui_page):
+        """Activer le webhook + rechargement : toujours actif."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.wait_for_function(
+            "() => document.getElementById('webhook-config').style.display === 'block'",
+            timeout=3_000,
+        )
+        wait_for_refresh(ui_page)
+        reload_and_wait(ui_page)
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert ui_page.locator("#opt-webhook-enabled").is_checked(), (
+            "Webhook doit rester active apres rechargement"
+        )
+
+    def test_webhook_url_persists_after_reload(self, ui_page):
+        """URL saisie + rechargement : URL conservee."""
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("label.toggle:has(#opt-webhook-enabled)").click()
+        ui_page.locator("#webhook-config").wait_for(state="visible")
+        url = "https://hooks.example.com/persist"
+        ui_page.locator("#opt-webhook-url").fill(url)
+        ui_page.locator("#opt-webhook-url").dispatch_event("input")
+        wait_for_refresh(ui_page)
+        reload_and_wait(ui_page)
+        _open_settings_section(ui_page)
+        _open_webhook_section(ui_page)
+        wait_for_refresh(ui_page)
+        saved = ui_page.locator("#opt-webhook-url").input_value()
+        assert saved == url, f"URL attendue {url!r}, obtenu {saved!r}"
+
