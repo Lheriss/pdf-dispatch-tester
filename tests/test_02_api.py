@@ -266,7 +266,12 @@ class TestApiTriggerMatching:
             {"value": "INVOICE", "page_handling": "keep", "case_sensitive": True}
         ])
         task = upload_and_wait(http, server, _pdf_before("FK3"))
-        assert task.get("docs_count", 0) == 0 or task["status"] == "success"
+        # FK3 code not in trigger list → no split; whole PDF routed to no_code (1 doc)
+        assert task["status"] == "success"
+        assert task.get("docs_count", 0) == 1, (
+            f"FK3 not in INVOICE trigger list: expected 1 no-code doc, "
+            f"got docs_count={task.get('docs_count')} triggers={task.get('triggers')}"
+        )
 
     def test_case_insensitive_match(self, http, server):
         set_triggers(http, server, [
