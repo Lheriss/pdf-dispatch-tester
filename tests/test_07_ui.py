@@ -130,7 +130,13 @@ def _open_options_section(page) -> None:
 
 
 def _open_email_section(page) -> None:
-    """Ouvre #email-section (le btn est dans #sbody, qui doit être ouvert)."""
+    """Ouvre #email-section.
+
+    #email-panel-btn est dans #options-body (sous-section de #sbody).
+    Il faut donc ouvrir #options-body avant de cliquer le bouton.
+    Prérequis : #sbody doit déjà être ouvert (_open_settings_section).
+    """
+    _open_options_section(page)   # #email-panel-btn vit dans #options-body
     section = page.locator("#email-section")
     if not section.is_visible():
         page.locator("#email-panel-btn").click()
@@ -223,7 +229,7 @@ class TestUiTriggers:
         ui_page.wait_for_function(
             "() => document.getElementById('trigger-panel').classList.contains('open')"
         )
-        ui_page.locator("#tp-delete-page").check()
+        ui_page.locator("#tp-delete-page").check(force=True)  # input masqué par CSS toggle
         ui_page.wait_for_function(
             "() => document.querySelector('#trigger-list .del-icon') !== null"
         )
@@ -237,7 +243,7 @@ class TestUiTriggers:
         ui_page.wait_for_function(
             "() => document.getElementById('trigger-panel').classList.contains('open')"
         )
-        ui_page.locator("#tp-case-sensitive").uncheck()
+        ui_page.locator("#tp-case-sensitive").uncheck(force=True)  # input masqué par CSS toggle
         ui_page.wait_for_function(
             "() => document.querySelector('#trigger-list .case-icon') !== null"
         )
@@ -338,7 +344,7 @@ class TestUiOptions:
         _open_settings_section(ui_page)
         _open_options_section(ui_page)
         assert not ui_page.locator("#opt-delete").is_checked()
-        ui_page.locator("#opt-delete").click()
+        ui_page.locator("#opt-delete").click(force=True)  # input masqué par CSS toggle
         wait_for_refresh(ui_page)
         reload_and_wait(ui_page)
         _open_settings_section(ui_page)
