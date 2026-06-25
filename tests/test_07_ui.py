@@ -152,6 +152,7 @@ def _create_and_open_email_draft(page, name: str = "") -> None:
     if not page.locator("#email-config-panel.open").is_visible():
         tag.click()
     page.locator("#email-config-panel.open").wait_for(state="attached", timeout=8_000)
+    wait_for_refresh(page)  # laisser refresh() peupler cfg.split_values (FK3) et syncer les radios
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,7 +230,7 @@ class TestUiTriggers:
         ui_page.wait_for_function(
             "() => document.getElementById('trigger-panel').classList.contains('open')"
         )
-        ui_page.locator("#tp-delete-page").check(force=True)  # input masqué par CSS toggle
+        ui_page.locator("label.toggle:has(#tp-delete-page)").click()  # clic sur le label visible du CSS toggle
         ui_page.wait_for_function(
             "() => document.querySelector('#trigger-list .del-icon') !== null"
         )
@@ -243,7 +244,7 @@ class TestUiTriggers:
         ui_page.wait_for_function(
             "() => document.getElementById('trigger-panel').classList.contains('open')"
         )
-        ui_page.locator("#tp-case-sensitive").uncheck(force=True)  # input masqué par CSS toggle
+        ui_page.locator("label.toggle:has(#tp-case-sensitive)").click()  # clic sur le label visible du CSS toggle
         ui_page.wait_for_function(
             "() => document.querySelector('#trigger-list .case-icon') !== null"
         )
@@ -344,7 +345,7 @@ class TestUiOptions:
         _open_settings_section(ui_page)
         _open_options_section(ui_page)
         assert not ui_page.locator("#opt-delete").is_checked()
-        ui_page.locator("#opt-delete").click(force=True)  # input masqué par CSS toggle
+        ui_page.locator("label.toggle:has(#opt-delete)").click()  # clic sur le label visible du CSS toggle
         wait_for_refresh(ui_page)
         reload_and_wait(ui_page)
         _open_settings_section(ui_page)
@@ -449,7 +450,7 @@ class TestUiEmailPanel:
             "el => parseFloat(el.style.opacity || '1')"
         )
         assert initial_opacity >= 0.9, f"Opacity initiale trop faible: {initial_opacity}"
-        use_ssl.uncheck()
+        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: clic label
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6",
             timeout=5_000,
@@ -465,11 +466,11 @@ class TestUiEmailPanel:
         _create_and_open_email_draft(ui_page, "test-ssl-restore")
         use_ssl   = ui_page.locator("#em-use-ssl")
         ssl_input = ui_page.locator("#em-ssl")
-        use_ssl.uncheck()
+        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: uncheck via label
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6"
         )
-        use_ssl.check()
+        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: recheck via label
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') >= 0.9"
         )
@@ -501,8 +502,7 @@ class TestUiEmailPanel:
         use_ssl    = ui_page.locator("#em-use-ssl")
         port_input = ui_page.locator("#em-port")
         assert use_ssl.is_checked()
-        port_input.triple_click()
-        port_input.fill("143")
+        port_input.fill("143")  # fill() efface et remplace — triple_click inutile et inexistant
         port_input.dispatch_event("input")
         ui_page.wait_for_function(
             "() => !document.getElementById('em-use-ssl').checked",
