@@ -371,7 +371,7 @@ GROUPS = [
         "desc": "Renommage trigger subdir, suppression no_code/ et error/ · 4 tests",
         "args": ["tests/test_08_filedrop.py::TestDirectoryRobustness"],
         "available": True, "sub": True, "parent": "phase8",
-    },
+    },    },
     {
         "id": "phase8_persistence",
         "label": "↳ Persistance config sur disque",
@@ -811,15 +811,22 @@ def stop_tests():
 def stream():
     def _gen():
         sent = 0
+        last_heartbeat = time.time()
         while True:
             with _lock:
                 if _job is None: yield "data: {}\n\n"; return
                 lines = _job["lines"][:]; running = _job["running"]; rc = _job["returncode"]
             for line in lines[sent:]:
                 yield f"data: {json.dumps(line)}\n\n"; sent += 1
+                last_heartbeat = time.time()
             if not running:
                 s = "PASSED" if rc == 0 else "FAILED"
                 yield f"event: done\ndata: {json.dumps({'status':s,'returncode':rc})}\n\n"; return
+            # SSE comment heartbeat — prevents proxies and browsers from closing
+            # the connection during slow tests (pdf-dispatch processing waits).
+            if time.time() - last_heartbeat >= 15:
+                yield ": keep-alive\n\n"
+                last_heartbeat = time.time()
             time.sleep(0.15)
     return Response(_gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -905,3 +912,4 @@ def status():
 if __name__ == "__main__":
     print(f"pdf-dispatch-tester web UI → http://0.0.0.0:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
+
