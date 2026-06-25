@@ -1,5 +1,5 @@
 """
-tests/test_06_security.py — Security regression tests.
+tests/test_05_security.py — Security regression tests.
 
 Verifies that pdf-dispatch resists the two highest-priority adversarial
 attack vectors identified in the security audit:
