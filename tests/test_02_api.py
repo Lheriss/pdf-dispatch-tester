@@ -543,10 +543,10 @@ class TestApiSsrf:
         http.post(f"{server}/api/config", json={"webhook_enabled": False, "webhook_url": ""})
 
     def test_task_completes_despite_unreachable_webhook(self, http, server):
-        """169.254.169.254 is unreachable — task must still succeed, no crash."""
+        """192.0.2.1 (RFC 5737 TEST-NET-1) is never routable — task must succeed, no crash."""
         http.post(f"{server}/api/config", json={
             "webhook_enabled": True,
-            "webhook_url":     "http://169.254.169.254/latest/meta-data/",
+            "webhook_url":     "http://192.0.2.1/",
             "webhook_events":  "all",
         })
         set_triggers(http, server, _KEEP)

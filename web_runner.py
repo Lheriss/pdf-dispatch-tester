@@ -20,9 +20,9 @@ GROUPS = [
     {
         "id": "phase0",
         "label": "Phase 0 — Générateur PDF",
-        "desc": "Génération de fixtures PDF (outil interne) · 19 tests",
+        "desc": "Génération de fixtures PDF (outil interne) · 19 tests — lancé automatiquement",
         "args": ["tests/test_00_generator.py"],
-        "available": True,
+        "available": False,
     },
     # ─── Phase 1 ─── Traitement core (watchdog) ───────────────────────────
     {

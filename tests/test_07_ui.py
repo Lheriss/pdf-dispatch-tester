@@ -14,7 +14,7 @@ Structure :
 Marqueur : @pytest.mark.ui
   Tous les tests nécessitent Playwright + Chromium dans le container.
   Pour exclure : pytest -m "not ui"
-  Pour cibler : pytest -m ui tests/test_09_ui.py
+  Pour cibler : pytest -m ui tests/test_07_ui.py
 """
 from __future__ import annotations
 
@@ -161,7 +161,7 @@ def _create_and_open_email_draft(page, name: str = "") -> None:
 
 @pytest.mark.ui
 class TestUiTriggers:
-    """Phase 9c — Création, configuration et suppression de déclencheurs via l'UI.
+    """Phase 7c — Création, configuration et suppression de déclencheurs via l'UI.
 
     Chaque test part d'un état vierge (split_values=[]) imposé par l'API,
     puis interagit exclusivement via le navigateur pour vérifier que les
@@ -290,7 +290,7 @@ class TestUiTriggers:
 
 @pytest.mark.ui
 class TestUiOptions:
-    """Phase 9e — Panneau Options : placement du séparateur et toggles.
+    """Phase 7e — Panneau Options : placement du séparateur et toggles.
 
     Vérifie que les contrôles du panneau Options reflètent la configuration
     serveur et que les changements persistent après rechargement.
@@ -360,7 +360,7 @@ class TestUiOptions:
 
 @pytest.mark.ui
 class TestUiEmailPanel:
-    """Phase 9f — Panneau de configuration email : régressions CSS/UI.
+    """Phase 7f — Panneau de configuration email : régressions CSS/UI.
 
     Ces tests ciblent les bugs UI spécifiquement documentés :
     - Clés i18n brutes visibles sur les labels action (email.action_read…)
