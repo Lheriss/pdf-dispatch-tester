@@ -99,8 +99,8 @@ class TesterLogger:
         self._log.setLevel(level)
         self._log.propagate = False
 
-        fmt = logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s",
-                                datefmt="%H:%M:%S.%03d")
+        fmt = logging.Formatter("%(asctime)s.%(msecs)03d  %(levelname)-7s  %(message)s",
+                                datefmt="%H:%M:%S")
 
         # File handler
         fh = logging.FileHandler(self.run_dir / "session.log", encoding="utf-8")
