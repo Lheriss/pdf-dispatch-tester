@@ -119,24 +119,8 @@ def http(server, api_key, log) -> requests.Session:
 # Automatic per-test logging via pytest hooks
 # ─────────────────────────────────────────────────────────────────────────────
 
-def pytest_runtest_setup(item):
-    """Log the start of each test (accesses the session-scoped log fixture)."""
-    try:
-        logger = item.session._store.get("tester_log", None)
-        if logger:
-            logger.begin_test(item.nodeid)
-    except Exception:
-        pass
 
 
-def pytest_runtest_logreport(report):
-    """Log test outcome after the call phase."""
-    if report.when != "call":
-        return
-    try:
-        logger = report.fspath  # will fail gracefully if not available
-    except Exception:
-        pass
 
 
 @pytest.fixture(autouse=True)
@@ -331,10 +315,10 @@ def _clean_data_on_start(request, log):
     log.info(f"Cleanup done: {count} item(s) removed. /data is in baseline state.")
     yield  # run all tests
     # ── End-of-session: remove residual files from /data/input/ ──────────────
-    # Files that could not be processed (e.g. zero-byte files that hit
-    # stabilisation timeout) are left in input/ by pdf-dispatch. These are
-    # not useful to inspect (the test result is already in the logs), so
-    # we clean them here.
+    # Safety net: removes any file left in input/ by a crashed or incomplete
+    # test (e.g. a drop that timed out before pdf-dispatch could pick it up).
+    # Since fix 262f600d, zero-byte stabilisation-timeout files are moved to
+    # error/ by pdf-dispatch itself; this cleanup handles other edge cases.
     if input_dir.exists():
         residuals = list(input_dir.glob("*.pdf"))
         for f in residuals:
