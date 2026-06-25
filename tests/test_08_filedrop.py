@@ -483,3 +483,113 @@ class TestDirectoryRobustness:
         log.info(f"  Suppressions séquentielles : "
                  f"no_code recréé={no_code.exists()}, "
                  f"error recréé={error_d.exists()} ✓")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 8d — Persistance de la configuration sur disque
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestConfigPersistence:
+    """Vérifie que les changements de configuration via l'API sont bien
+    écrits dans /data/.splitter_config.json.
+
+    Ces tests simulent le cas où le container redémarre : si la config
+    n'est pas persistée sur disque, elle serait perdue au redémarrage.
+    On ne redémarre pas réellement le container — on lit directement le
+    fichier JSON pour s'assurer que chaque valeur modifiée est sauvegardée.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore(self, http, server, data_path, log):
+        """Restaure la config à l'état de départ après chaque test."""
+        # Capture l'état initial
+        orig = json.loads((data_path / ".splitter_config.json").read_text())             if (data_path / ".splitter_config.json").exists() else {}
+        yield
+        # Restaurer via API (plus sûr qu'une écriture directe)
+        set_config(http, server,
+                   separator_placement=orig.get("separator_placement", "before"),
+                   subdirs_by_trigger=orig.get("subdirs_by_trigger", True),
+                   delete_source=orig.get("delete_source", False))
+        set_triggers(http, server, orig.get("split_values", []))
+        time.sleep(0.3)
+
+    def _read_cfg(self, data_path) -> dict:
+        """Lit et parse .splitter_config.json."""
+        cfg_path = data_path / ".splitter_config.json"
+        assert cfg_path.exists(), ".splitter_config.json must exist"
+        return json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    def test_trigger_persisted_to_disk(self, http, server, data_path, log):
+        """Ajouter un trigger via API → apparaît dans .splitter_config.json."""
+        unique_val = f"PERSIST_{int(time.time())}"
+        set_triggers(http, server, [
+            {"value": unique_val, "page_handling": "keep", "case_sensitive": True}
+        ])
+        time.sleep(0.5)
+        saved = self._read_cfg(data_path)
+        values = [
+            (sv["value"] if isinstance(sv, dict) else sv)
+            for sv in saved.get("split_values", [])
+        ]
+        assert unique_val in values, (
+            f"{unique_val!r} not found in persisted split_values: {values}"
+        )
+        log.info(f"Trigger {unique_val!r} trouvé dans la config sur disque ✓")
+
+    def test_separator_placement_persisted(self, http, server, data_path, log):
+        """Changer separator_placement via API → persisté sur disque."""
+        set_config(http, server, separator_placement="after")
+        time.sleep(0.5)
+        saved = self._read_cfg(data_path)
+        assert saved.get("separator_placement") == "after", (
+            f"separator_placement not persisted: {saved.get('separator_placement')!r}"
+        )
+        log.info("separator_placement='after' persisté ✓")
+
+    def test_subdirs_flag_persisted(self, http, server, data_path, log):
+        """subdirs_by_trigger=False → persisté sur disque."""
+        set_config(http, server, subdirs_by_trigger=False)
+        time.sleep(0.5)
+        saved = self._read_cfg(data_path)
+        assert saved.get("subdirs_by_trigger") == False, (
+            f"subdirs_by_trigger not persisted: {saved.get('subdirs_by_trigger')!r}"
+        )
+        log.info("subdirs_by_trigger=False persisté ✓")
+
+    def test_multiple_config_fields_persisted_atomically(
+        self, http, server, data_path, log
+    ):
+        """Plusieurs champs modifiés ensemble → tous persistés."""
+        unique_val = f"ATOM_{int(time.time())}"
+        set_triggers(http, server, [
+            {"value": unique_val, "page_handling": "delete", "case_sensitive": False}
+        ])
+        set_config(http, server, separator_placement="after",
+                   subdirs_by_trigger=False, delete_source=True)
+        time.sleep(0.5)
+        saved = self._read_cfg(data_path)
+
+        values = [
+            (sv["value"] if isinstance(sv, dict) else sv)
+            for sv in saved.get("split_values", [])
+        ]
+        assert unique_val in values, f"Trigger not persisted: {values}"
+        assert saved.get("separator_placement") == "after"
+        assert saved.get("subdirs_by_trigger") == False
+        assert saved.get("delete_source") == True
+        log.info("Tous les champs persistés atomiquement ✓")
+
+    def test_clear_triggers_persisted(self, http, server, data_path, log):
+        """Vider la liste de triggers → split_values=[] sur disque."""
+        # Ajouter d'abord un trigger
+        set_triggers(http, server, [{"value": "TODEL", "page_handling": "keep"}])
+        time.sleep(0.2)
+        # Le supprimer
+        set_triggers(http, server, [])
+        time.sleep(0.5)
+        saved = self._read_cfg(data_path)
+        values = saved.get("split_values", [])
+        assert values == [], (
+            f"Empty trigger list must be persisted as []: got {values!r}"
+        )
+        log.info("Liste vide persistée ✓")

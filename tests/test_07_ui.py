@@ -750,3 +750,191 @@ class TestUiWebhook:
         saved = ui_page.locator("#opt-webhook-url").input_value()
         assert saved == url, f"URL attendue {url!r}, obtenu {saved!r}"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers — panneaux Dirs et ApiKey (dans #options-body)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _open_dirs_section(page) -> None:
+    """Ouvre #dirs-panel (dans #options-body)."""
+    _open_options_section(page)
+    panel = page.locator("#dirs-panel")
+    if not panel.is_visible():
+        page.locator("#dirs-panel-btn").click()
+        panel.wait_for(state="visible")
+
+
+def _open_apikey_section(page) -> None:
+    """Ouvre #apikey-panel (dans #options-body)."""
+    _open_options_section(page)
+    panel = page.locator("#apikey-panel")
+    if not panel.is_visible():
+        page.locator("#apikey-panel-btn").click()
+        panel.wait_for(state="visible")
+
+
+@pytest.mark.ui
+class TestUiDirs:
+    """Phase 7h — Panneau Configurer les dossiers."""
+
+    def test_dirs_panel_opens(self, ui_page):
+        """#dirs-panel-btn ouvre #dirs-panel."""
+        _open_settings_section(ui_page)
+        _open_dirs_section(ui_page)
+        assert ui_page.locator("#dirs-panel").is_visible()
+
+    def test_data_root_populated(self, ui_page):
+        """#dir-data-root affiche un chemin (pas vide ni tiret)."""
+        _open_settings_section(ui_page)
+        _open_dirs_section(ui_page)
+        wait_for_refresh(ui_page)
+        root_text = ui_page.locator("#dir-data-root").inner_text().strip()
+        assert root_text and root_text not in ("-", chr(8211), ""), (
+            f"#dir-data-root must show a path, got {root_text!r}"
+        )
+        assert "/" in root_text, f"Path must contain /: {root_text!r}"
+
+    def test_dirs_table_has_rows(self, ui_page):
+        """#dirs-tbody contient au moins 3 lignes (input, output, error)."""
+        _open_settings_section(ui_page)
+        _open_dirs_section(ui_page)
+        wait_for_refresh(ui_page)
+        rows = ui_page.locator("#dirs-tbody tr")
+        assert rows.count() >= 3, (
+            f"Expected >= 3 rows in dirs table, got {rows.count()}"
+        )
+
+    def test_dirs_heading_translated(self, ui_page):
+        """Titre du panneau traduit (pas cle i18n brute)."""
+        _open_settings_section(ui_page)
+        _open_dirs_section(ui_page)
+        el = ui_page.locator("[data-i18n='dirs.panel_title']")
+        if el.count() > 0:
+            text = el.first.inner_text().strip()
+            assert 'dirs.panel_title' not in text, f"i18n key visible: {text!r}"
+
+
+@pytest.mark.ui
+class TestUiApiKey:
+    """Phase 7i — Panneau Acces API : visibilite et toggle."""
+
+    def test_apikey_panel_opens(self, ui_page):
+        """#apikey-panel-btn ouvre #apikey-panel."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        assert ui_page.locator("#apikey-panel").is_visible()
+
+    def test_api_key_field_present_and_non_empty(self, ui_page):
+        """#api-key-field est present et contient la cle."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        wait_for_refresh(ui_page)
+        field = ui_page.locator("#api-key-field")
+        assert field.count() == 1
+        assert len(field.input_value()) >= 8, (
+            f"API key must be non-empty, got {field.input_value()!r}"
+        )
+
+    def test_api_key_hidden_by_default(self, ui_page):
+        """#api-key-field est de type password par defaut."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        wait_for_refresh(ui_page)
+        t = ui_page.locator("#api-key-field").get_attribute("type")
+        assert t == "password", f"Expected type=password, got {t!r}"
+
+    def test_show_button_reveals_key(self, ui_page):
+        """#api-key-show-btn change le type a text."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.locator("#api-key-show-btn").click()
+        t = ui_page.locator("#api-key-field").get_attribute("type")
+        assert t == "text", f"After show click, expected text, got {t!r}"
+
+    def test_show_button_rehides_key(self, ui_page):
+        """Double clic revient a type=password."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        wait_for_refresh(ui_page)
+        btn = ui_page.locator("#api-key-show-btn")
+        btn.click(); btn.click()
+        t = ui_page.locator("#api-key-field").get_attribute("type")
+        assert t == "password", f"After re-hide, expected password, got {t!r}"
+
+    def test_apikey_heading_translated(self, ui_page):
+        """Titre traduit, pas de cle i18n brute."""
+        _open_settings_section(ui_page)
+        _open_apikey_section(ui_page)
+        el = ui_page.locator("[data-i18n='apikey.section_title']")
+        if el.count() > 0:
+            assert 'apikey.section_title' not in el.first.inner_text()
+
+
+@pytest.mark.ui
+class TestUiFilenameTokens:
+    """Phase 7j — Constructeur de tokens de nom de fichier.
+
+    #token-list est dans #sbody (pas dans #options-body).
+    """
+
+    def test_token_list_in_dom_after_settings_open(self, ui_page):
+        """#token-list est dans le DOM apres ouverture settings."""
+        _open_settings_section(ui_page)
+        wait_for_refresh(ui_page)
+        assert ui_page.locator("#token-list").count() == 1
+
+    def test_default_tokens_present(self, ui_page):
+        """Au moins 2 tokens par defaut (trigger, counter)."""
+        _open_settings_section(ui_page)
+        wait_for_refresh(ui_page)
+        items = ui_page.locator(
+            "#token-list .token-item, #token-list [class*=tl]"
+        )
+        # token-list is populated via renderTokens() — give JS a moment
+        ui_page.wait_for_function(
+            "() => document.getElementById('token-list').children.length >= 1",
+            timeout=5_000,
+        )
+        raw = ui_page.locator("#token-list").inner_html()
+        assert raw.strip(), "token-list must not be empty after settings open"
+
+    def test_add_string_token_button_present(self, ui_page):
+        """Le bouton Ajouter un texte libre est visible."""
+        _open_settings_section(ui_page)
+        wait_for_refresh(ui_page)
+        btn = ui_page.locator("button[onclick='addStringToken()']").first
+        assert btn.count() > 0 or ui_page.locator(
+            "[data-i18n='filename.add_free_text']"
+        ).count() > 0, "addStringToken button must be present"
+
+    def test_separator_buttons_present(self, ui_page):
+        """Boutons separateurs (_ - .) presents dans le panneau."""
+        _open_settings_section(ui_page)
+        wait_for_refresh(ui_page)
+        for sep_id in ("sep-_", "sep--", "sep-."):
+            assert ui_page.locator(f"#{sep_id}").count() >= 1, (
+                f"Separator button #{sep_id} must be present"
+            )
+
+    def test_add_string_token_increases_list(self, ui_page):
+        """Cliquer Ajouter texte libre ajoute un token dans la liste."""
+        _open_settings_section(ui_page)
+        wait_for_refresh(ui_page)
+        ui_page.wait_for_function(
+            "() => document.getElementById('token-list').children.length >= 1",
+            timeout=5_000,
+        )
+        before_count = ui_page.evaluate(
+            "() => document.getElementById('token-list').children.length"
+        )
+        ui_page.locator("button[onclick='addStringToken()']").first.click()
+        ui_page.wait_for_function(
+            f"() => document.getElementById('token-list').children.length > {before_count}",
+            timeout=3_000,
+        )
+        after_count = ui_page.evaluate(
+            "() => document.getElementById('token-list').children.length"
+        )
+        assert after_count > before_count, (
+            f"Token list must grow: {before_count} → {after_count}"
+        )

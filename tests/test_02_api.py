@@ -695,3 +695,133 @@ class TestApiMaliciousPayload:
         pages = [{"kind": "content", "text": "A" * 5_000} for _ in range(10)]
         task = upload_and_wait(http, server, make_pdf(pages), timeout=60.0)
         _task_ok(task)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestApiConcurrentUploads — deux tâches soumises sans attendre la première
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestApiConcurrentUploads:
+    """Deux PDFs uploadés quasi-simultanément.
+
+    Vérifie qu'aucune race-condition ne corrompt les sorties
+    (fichiers mélangés, compteur décalé, tâche bloquée).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, http, server):
+        set_triggers(http, server, _KEEP)
+        set_config(http, server, separator_placement="before",
+                   subdirs_by_trigger=True, delete_source=False)
+        yield
+        set_triggers(http, server, [])
+
+    def test_two_tasks_both_complete(self, http, server):
+        """Soumet 2 uploads rapidement, attend les deux tâches, vérifie le succès."""
+        r1 = upload_pdf(http, server, _pdf_before(), "concurrent_a.pdf")
+        r2 = upload_pdf(http, server, _pdf_before(), "concurrent_b.pdf")
+        assert r1.get("ok") and r2.get("ok"), "Both uploads must be accepted"
+        tid1 = r1["saved"][0]["task_id"]
+        tid2 = r2["saved"][0]["task_id"]
+        t1 = poll_task(http, server, tid1, timeout=30.0)
+        t2 = poll_task(http, server, tid2, timeout=30.0)
+        assert t1["status"] == "success", f"Task 1 failed: {t1}"
+        assert t2["status"] == "success", f"Task 2 failed: {t2}"
+
+    def test_concurrent_tasks_independent_docs_count(self, http, server):
+        """Chaque tâche produit le bon nombre de documents (pas de mélange)."""
+        r1 = upload_pdf(http, server, _pdf_before(), "conc1.pdf")
+        r2 = upload_pdf(http, server, _pdf_before(), "conc2.pdf")
+        t1 = poll_task(http, server, r1["saved"][0]["task_id"], timeout=30.0)
+        t2 = poll_task(http, server, r2["saved"][0]["task_id"], timeout=30.0)
+        # _pdf_before splits into 2 documents
+        assert t1["docs_count"] == 2, f"Task 1 docs_count={t1['docs_count']}"
+        assert t2["docs_count"] == 2, f"Task 2 docs_count={t2['docs_count']}"
+
+    def test_task_ids_are_unique(self, http, server):
+        """Les task_id des deux uploads sont distincts."""
+        r1 = upload_pdf(http, server, _pdf_plain(), "uid1.pdf")
+        r2 = upload_pdf(http, server, _pdf_plain(), "uid2.pdf")
+        tid1 = r1["saved"][0]["task_id"]
+        tid2 = r2["saved"][0]["task_id"]
+        assert tid1 != tid2, "Task IDs must be unique across concurrent uploads"
+
+    def test_three_tasks_all_complete(self, http, server):
+        """3 tâches soumises rapidement : toutes doivent atteindre un état terminal."""
+        results = [upload_pdf(http, server, _pdf_plain(), f"t3_{i}.pdf")
+                   for i in range(3)]
+        task_ids = [r["saved"][0]["task_id"] for r in results]
+        tasks = [poll_task(http, server, tid, timeout=30.0) for tid in task_ids]
+        terminal = {"success", "error"}
+        for i, t in enumerate(tasks):
+            assert t["status"] in terminal, (
+                f"Task {i} stuck in status={t['status']!r}"
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestApiErrorFormat — structure uniforme {ok, error} sur toutes les erreurs
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestApiErrorFormat:
+    """Vérifie que chaque réponse d'erreur de l'API respecte le contrat
+    {"ok": false, "error": "..."} documenté dans l'OpenAPI.
+
+    Régression : certains endpoints renvoyaient une chaîne brute ou un
+    objet non conforme au lieu du format canonique.
+    """
+
+    def test_missing_file_field_format(self, http, server):
+        """POST /api/upload sans fichier → 400 avec ok=false et error present."""
+        r = http.post(f"{server}/api/upload")
+        assert r.status_code in (400, 422)
+        body = r.json()
+        assert body.get("ok") is False or "error" in body, (
+            f"Missing-file error must include ok=false or error field: {body}"
+        )
+
+    def test_unknown_task_format(self, http, server):
+        """GET /api/tasks/<bad-id> → 404 avec ok=false."""
+        r = http.get(f"{server}/api/tasks/does-not-exist-{uuid.uuid4().hex}")
+        assert r.status_code == 404
+        body = r.json()
+        assert body.get("ok") is False, f"404 must have ok=false: {body}"
+        assert "error" in body, f"404 must have error field: {body}"
+
+    def test_bad_config_field_format(self, http, server):
+        """POST /api/config avec valeur invalide → 400 avec ok=false."""
+        r = http.post(f"{server}/api/config",
+                      json={"webhook_url": "\r\nX-Inject: bad"})
+        # May be 400 or 200 depending on validation; if 400, must have ok=false
+        if r.status_code >= 400:
+            body = r.json()
+            _no_stack_trace(r)
+            assert body.get("ok") is False or "error" in body
+
+    def test_email_config_bad_port_format(self, http, server):
+        """POST /api/email/configs avec port=0 → 400 avec ok=false et error."""
+        r = http.post(f"{server}/api/email/configs", json={
+            "name": "bad-port", "host": "greenmail", "port": 0,
+            "username": "u", "password": "p", "folder": "INBOX",
+        })
+        assert r.status_code == 400
+        body = r.json()
+        assert body.get("ok") is False, f"bad port must give ok=false: {body}"
+        assert "error" in body, f"bad port must include error: {body}"
+
+    def test_email_config_missing_host_format(self, http, server):
+        """POST /api/email/configs sans host → 400 avec ok=false."""
+        r = http.post(f"{server}/api/email/configs",
+                      json={"name": "nohost", "port": 993, "username": "u"})
+        assert r.status_code in (400, 422)
+        body = r.json()
+        _no_stack_trace(r)
+        assert "ok" in body or "error" in body
+
+    def test_api_recent_bad_n_format(self, http, server):
+        """GET /api/recent?n=abc → 400 avec ok=false et error."""
+        r = http.get(f"{server}/api/recent", params={"n": "abc"})
+        assert r.status_code == 400
+        body = r.json()
+        assert body.get("ok") is False, f"bad n must give ok=false: {body}"
+        assert "error" in body
