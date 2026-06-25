@@ -371,7 +371,7 @@ GROUPS = [
         "desc": "Renommage trigger subdir, suppression no_code/ et error/ · 4 tests",
         "args": ["tests/test_08_filedrop.py::TestDirectoryRobustness"],
         "available": True, "sub": True, "parent": "phase8",
-    },    },
+    },
     {
         "id": "phase8_persistence",
         "label": "↳ Persistance config sur disque",
