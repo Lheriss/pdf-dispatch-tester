@@ -28,6 +28,7 @@ import pytest
 from file_dropper import FileDropper
 from helpers import set_config, set_triggers
 from pdf_generator import (
+    fixture_one_trigger_after,
     fixture_one_trigger_before,
     fixture_two_triggers,
     make_pdf,
@@ -223,26 +224,31 @@ class TestFiledropPageCounts:
         self, dropper, http, server, _cleanup_on_pass, log
     ):
         """
-        PDF [contenu 2p][code FK3] — placement=after, keep
-        → 1 document de 3 pages (contenu + code au fond).
+        PDF [contenu(p1)] [contenu(p2)] [code FK3(p3)] [contenu(p4)] — placement=after, keep
+        → 2 documents : doc1=[p1,p2,p3]=3p (code gardé en fin), doc2=[p4]=1p.
+
+        Vérification double :
+          • API : docs_count == 2
+          • Filesystem : page-count de chaque document
         """
         set_triggers(http, server, [
             {"value": TRIGGER, "page_handling": "keep", "case_sensitive": True}
         ])
         set_config(http, server, separator_placement="after")
 
-        from pdf_generator import fixture_one_trigger_after
         r = dropper.drop(fixture_one_trigger_after(TRIGGER), prefix="after_keep")
         _cleanup_on_pass.append(r)
 
         assert r.status == "success"
-        assert r.docs_count == 1
-
-        pages = r.page_count_of(0)
-        assert pages == 3, (
-            f"Placement after keep : attendu 3p (2 contenu + 1 code), obtenu {pages}"
+        assert r.docs_count == 2, (
+            f"Placement after+keep : attendu 2 docs, obtenu {r.docs_count}"
         )
-        log.info(f"  after/keep : doc1={pages}p ✓")
+
+        pc0 = r.page_count_of(0)
+        pc1 = r.page_count_of(1)
+        assert pc0 == 3, f"Doc 1 (contenu+code) : attendu 3p, obtenu {pc0}"
+        assert pc1 == 1, f"Doc 2 (contenu restant) : attendu 1p, obtenu {pc1}"
+        log.info(f"  after/keep : doc1={pc0}p, doc2={pc1}p ✓")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
