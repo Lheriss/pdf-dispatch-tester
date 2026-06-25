@@ -23,6 +23,8 @@ r.all_docs      = output_files + no_code_files, sorted chronologically
 r.page_count_of(n) reads the Nth document from all_docs.
 """
 
+import uuid
+
 import pytest
 
 from file_dropper import FileDropper
@@ -361,7 +363,6 @@ class TestAdversarial:
         Since fix 262f600d, the file is moved to output/error/ instead of being
         left in input/.  Verified: exactly 1 error file, no output produced.
         """
-        import uuid
         filename = f"zero_{uuid.uuid4().hex[:8]}.pdf"
         r = dropper.drop_raw(make_zero_bytes(), filename=filename)
         _cleanup.append(r)
@@ -373,14 +374,12 @@ class TestAdversarial:
         )
 
     def test_jpeg_with_pdf_extension_goes_to_error(self, dropper, http, server, _cleanup, log):
-        import uuid
         filename = f"fake_{uuid.uuid4().hex[:8]}.pdf"
         r = dropper.drop_raw(make_non_pdf_with_pdf_extension(), filename=filename)
         _cleanup.append(r)
         assert len(r.error_files) == 1
 
     def test_zip_with_pdf_extension_goes_to_error(self, dropper, http, server, _cleanup, log):
-        import uuid
         filename = f"zip_{uuid.uuid4().hex[:8]}.pdf"
         r = dropper.drop_raw(make_zip_as_pdf(), filename=filename)
         _cleanup.append(r)
@@ -413,7 +412,6 @@ class TestAdversarial:
         DPI rendering.  This is the same limit enforced by /api/upload but
         now active for scanner deposits and email attachments too.
         """
-        import uuid
         oversized = b"%PDF-1.4\n" + b"\x00" * (21 * 1024 * 1024)
         filename = f"big_{uuid.uuid4().hex[:8]}.pdf"
         r = dropper.drop_raw(oversized, filename=filename)
