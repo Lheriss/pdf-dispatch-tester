@@ -789,6 +789,80 @@ class TestApiConcurrentUploads:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TestApiConcurrencyRobustness — régression pour la saturation sous charge
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Historique : deux tests MaliciousPayload soumettaient des fichiers sans
+# attendre leur traitement. Le troisième test arrivait 77 ms plus tard,
+# forçant trois rendus ZXING à 300 DPI simultanément. pdf-dispatch se
+# retrouvait saturé : les GET /api/tasks passaient de 2 ms à 107 ms puis
+# bloquaient 56 secondes. poll_task atteignait son timeout de 60 s → FAIL,
+# et tous les tests suivants échouaient en cascade.
+# Correction : MAX_CONCURRENT_PROCESSING=2 (semaphore dans process_file).
+
+class TestApiConcurrencyRobustness:
+    """Régression : pdf-dispatch doit rester réactif même sous charge de rendu.
+
+    Soumet plusieurs uploads simultanément et vérifie que GET /api/tasks
+    reste sous un seuil de temps de réponse pendant tout le traitement.
+    Catches la faiblesse corrigée par MAX_CONCURRENT_PROCESSING.
+    """
+
+    RESPONSE_LIMIT_MS = 3_000   # seuil raisonnable : pdf-dispatch ne doit
+                                 # pas bloquer Flask au-delà de 3 s même sous charge
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, http, server):
+        set_triggers(http, server, _KEEP)
+        set_config(http, server, separator_placement="before",
+                   delete_source=False)
+        yield
+        set_triggers(http, server, [])
+
+    def test_flask_stays_responsive_under_concurrent_load(self, http, server):
+        """Soumet 3 uploads quasi-simultanément et vérifie que /api/tasks
+        répond en moins de RESPONSE_LIMIT_MS durant tout le traitement.
+
+        Régression pour : GET /api/tasks bloqué 56 s sous charge de 3 rendus
+        DPI simultanés (avant MAX_CONCURRENT_PROCESSING).
+        """
+        # Soumettre 3 PDFs sans attendre
+        r1 = upload_pdf(http, server, _pdf_before(), "robustness_a.pdf")
+        r2 = upload_pdf(http, server, _pdf_before(), "robustness_b.pdf")
+        r3 = upload_pdf(http, server, _pdf_before(), "robustness_c.pdf")
+        for r in (r1, r2, r3):
+            assert r.get("ok"), f"Upload failed: {r}"
+        task_ids = [r["saved"][0]["task_id"] for r in (r1, r2, r3)]
+
+        # Polling avec mesure du temps de réponse
+        max_elapsed_ms = 0.0
+        deadline = time.time() + 90.0   # timeout global généreux
+        pending = list(task_ids)
+
+        while pending and time.time() < deadline:
+            still_pending = []
+            for tid in pending:
+                t0 = time.time()
+                resp = http.get(f"{server}/api/tasks/{tid}", timeout=10.0)
+                elapsed_ms = (time.time() - t0) * 1000
+                max_elapsed_ms = max(max_elapsed_ms, elapsed_ms)
+                task = resp.json().get("task", {})
+                if task.get("status") not in ("success", "error"):
+                    still_pending.append(tid)
+            pending = still_pending
+            if pending:
+                time.sleep(0.5)
+
+        assert not pending, (
+            f"Tâches non terminées après 90 s : {pending}"
+        )
+        assert max_elapsed_ms < self.RESPONSE_LIMIT_MS, (
+            f"pdf-dispatch est devenu non réactif sous charge : "
+            f"GET /api/tasks a pris {max_elapsed_ms:.0f} ms "
+            f"(limite : {self.RESPONSE_LIMIT_MS} ms). "
+            f"Vérifier MAX_CONCURRENT_PROCESSING dans docker-compose.test.yml."
+        )
+
 # TestApiErrorFormat — structure uniforme {ok, error} sur toutes les erreurs
 # ─────────────────────────────────────────────────────────────────────────────
 
