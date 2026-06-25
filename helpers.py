@@ -42,8 +42,10 @@ def poll_task(
             task = r.json()["task"]
             if task["status"] in ("success", "error"):
                 return task
-        except requests.exceptions.ConnectionError:
-            # pdf-dispatch may be restarting; wait and retry
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout):
+            # pdf-dispatch may be restarting or temporarily unresponsive;
+            # wait and retry for the duration of the timeout.
             pass
         time.sleep(interval)
     raise TimeoutError(
