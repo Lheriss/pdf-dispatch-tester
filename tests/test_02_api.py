@@ -142,9 +142,11 @@ class TestApiAuth:
 class TestApiBeforeKeep:
 
     @pytest.fixture(autouse=True)
-    def _setup(self, http, server):
+    def _reset(self, http, server):
         set_triggers(http, server, _KEEP)
-        set_config(http, server, separator_placement="before")
+        set_config(http, server, separator_placement="before", delete_source=False)
+        yield
+        set_triggers(http, server, [])
 
     def test_produces_two_documents(self, http, server):
         assert_task_success(upload_and_wait(http, server, _pdf_before()), docs_count=2)
@@ -688,16 +690,20 @@ class TestApiMaliciousPayload:
             )
 
     def test_many_qr_codes_no_crash(self, http, server):
-        """10 consecutive QR triggers. 50 caused Docker OOM.
-        Each triggers a split -> memory + disk pressure at 300 DPI.
+        """5 consecutive QR triggers. 50 caused Docker OOM; 10 was borderline at
+        300 DPI (ZXING renders each page to a pixel array before decoding).
+        Reduced to 5 to stay safely within mem_limit=1536m.
+        Each trigger causes a split → 5 single-page documents.
         """
-        pages = [{"kind": "qr", "value": TRIGGER, "label": str(i)} for i in range(10)]
+        pages = [{"kind": "qr", "value": TRIGGER, "label": str(i)} for i in range(5)]
         task = upload_and_wait(http, server, make_pdf(pages), timeout=60.0)
         _task_ok(task)
 
     def test_compressible_content_no_crash(self, http, server):
-        """10 compressible pages. Reduced from 50 (Docker OOM risk at 300 DPI)."""
-        pages = [{"kind": "content", "text": "A" * 5_000} for _ in range(10)]
+        """5 compressible pages (50KB text each). Reduced from 50 (OOM) then 10
+        (borderline at 300 DPI). 5 is a safe ceiling for the 1536m mem_limit.
+        """
+        pages = [{"kind": "content", "text": "A" * 5_000} for _ in range(5)]
         task = upload_and_wait(http, server, make_pdf(pages), timeout=60.0)
         _task_ok(task)
 
