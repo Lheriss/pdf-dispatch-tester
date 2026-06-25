@@ -358,17 +358,19 @@ class TestAdversarial:
     def test_zero_bytes_goes_to_error(self, dropper, http, server, _cleanup, log):
         """
         Zero-byte file triggers a stabilization timeout (15s) in pdf-dispatch.
-        The file is discarded without going to error/. Verified: no output produced.
+        Since fix 262f600d, the file is moved to output/error/ instead of being
+        left in input/.  Verified: exactly 1 error file, no output produced.
         """
         import uuid
         filename = f"zero_{uuid.uuid4().hex[:8]}.pdf"
         r = dropper.drop_raw(make_zero_bytes(), filename=filename)
         _cleanup.append(r)
-        # Zero-byte files hit the stabilization timeout and are discarded
-        assert r.status in ("error", "unknown")
+        assert r.status == "error"
         assert len(r.output_files) == 0
         assert len(r.no_code_files) == 0
-        log.info(f"zero-bytes in error/: {len(r.error_files)} (may be 0 due to timeout)")
+        assert len(r.error_files) == 1, (
+            f"Expected zero-byte file in error/, got {r.error_files}"
+        )
 
     def test_jpeg_with_pdf_extension_goes_to_error(self, dropper, http, server, _cleanup, log):
         import uuid
@@ -471,3 +473,4 @@ class TestEdgeCases:
         _cleanup.append(r)
         assert r.docs_count == 1
         assert r.page_count_of(0) == 3
+
