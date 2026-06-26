@@ -454,7 +454,7 @@ class TestEmailPasswordRoundtrip:
                 http.delete(f"{server}/api/email/configs/{ec['id']}")
 
     def _make_config(self, http, server) -> dict:
-        r = http.post(f"{server}/api/email/configs", json={{
+        r = http.post(f"{server}/api/email/configs", json={
             "name":         "phase4-pwd-roundtrip",
             "enabled":      False,
             "host":         _IMAP_HOST,
@@ -466,7 +466,7 @@ class TestEmailPasswordRoundtrip:
             "use_ssl":      False,
             "action":       "read",
             "poll_interval": 5,
-        }})
+        })
         r.raise_for_status()
         return r.json()
 
@@ -474,7 +474,7 @@ class TestEmailPasswordRoundtrip:
         """password_enc ne doit PAS apparaître dans GET /api/state."""
         self._make_config(http, server)
         state = http.get(f"{server}/api/state").json()
-        for ec in state.get("app_config", {{}}).get("email_configs", []):
+        for ec in state.get("app_config", {}).get("email_configs", []):
             assert "password_enc" not in ec, (
                 "password_enc must be stripped from /api/state responses"
             )
@@ -485,7 +485,7 @@ class TestEmailPasswordRoundtrip:
     def test_password_enc_not_in_create_response(self, http, server):
         """password_enc ne doit PAS apparaître dans la réponse POST /api/email/configs."""
         body = self._make_config(http, server)
-        ec = body.get("config", {{}})
+        ec = body.get("config", {})
         assert "password_enc" not in ec, (
             "password_enc must be stripped from create response"
         )
@@ -493,9 +493,9 @@ class TestEmailPasswordRoundtrip:
     def test_connection_test_succeeds_after_save(self, http, server):
         """Après sauvegarde avec mot de passe, /api/email/test doit réussir."""
         body = self._make_config(http, server)
-        config_id = body.get("config", {{}}).get("id")
-        assert config_id, f"No config id in response: {{body}}"
-        r = http.post(f"{{server}}/api/email/test", json={{
+        config_id = body.get("config", {}).get("id")
+        assert config_id, f"No config id in response: {body}"
+        r = http.post(f"{server}/api/email/test", json={
             "id":       config_id,
             "name":     "phase4-pwd-roundtrip",
             "host":     _IMAP_HOST,
@@ -504,12 +504,12 @@ class TestEmailPasswordRoundtrip:
             "folder":   "INBOX",
             "verify_ssl": False,
             "use_ssl":    False,
-        }})
+        })
         # Test via id → uses stored encrypted password
         assert r.status_code == 200
         result = r.json()
         assert result.get("ok"), (
-            f"IMAP connection test must succeed (password correctly stored): {{result}}"
+            f"IMAP connection test must succeed (password correctly stored): {result}"
         )
 
     def test_update_password_connection_still_works(self, http, server):
@@ -517,7 +517,7 @@ class TestEmailPasswordRoundtrip:
         body = self._make_config(http, server)
         config_id = body["config"]["id"]
         # Update with same password (simulate UI save)
-        http.post(f"{{server}}/api/email/configs/{{config_id}}", json={{
+        http.post(f"{server}/api/email/configs/{config_id}", json={
             "name":       "phase4-pwd-roundtrip",
             "host":       _IMAP_HOST,
             "port":       _IMAP_PORT,
@@ -526,14 +526,14 @@ class TestEmailPasswordRoundtrip:
             "folder":     "INBOX",
             "verify_ssl": False,
             "use_ssl":    False,
-        }})
-        r = http.post(f"{{server}}/api/email/test", json={{
+        })
+        r = http.post(f"{server}/api/email/test", json={
             "id": config_id,
             "name": "phase4-pwd-roundtrip",
             "host": _IMAP_HOST, "port": _IMAP_PORT,
             "username": _IMAP_USER, "folder": "INBOX",
             "verify_ssl": False, "use_ssl": False,
-        }})
+        })
         assert r.json().get("ok"), "Connection must still work after password update"
 
 
@@ -552,28 +552,28 @@ class TestEmailDeduplication:
     @pytest.fixture(autouse=True)
     def _setup(self, http, server, data_dir):
         _purge_greenmail()
-        set_triggers(http, server, [{{
+        set_triggers(http, server, [{
             "value": TRIGGER, "page_handling": "keep", "case_sensitive": True
-        }}])
+        }])
         set_config(http, server, separator_placement="before",
                    subdirs_by_trigger=True, delete_source=False)
         # Clean up configs before and after
-        for ec in http.get(f"{{server}}/api/state").json().get(
-                "app_config", {{}}).get("email_configs", []):
-            http.delete(f"{{server}}/api/email/configs/{{ec['id']}}")
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
         yield
-        for ec in http.get(f"{{server}}/api/state").json().get(
-                "app_config", {{}}).get("email_configs", []):
-            http.delete(f"{{server}}/api/email/configs/{{ec['id']}}")
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
         set_triggers(http, server, [])
 
     def test_processed_ids_populated_after_processing(self, http, server, data_dir):
         """Après traitement d'un email, processed_ids contient au moins 1 entrée."""
         before = snapshot_output(data_dir)
         _send(make_pdf([
-            {{"kind": "content", "text": "Dedup test"}},
-            {{"kind": "qr", "value": TRIGGER}},
-            {{"kind": "content", "text": "Doc 2"}},
+            {"kind": "content", "text": "Dedup test"},
+            {"kind": "qr", "value": TRIGGER},
+            {"kind": "content", "text": "Doc 2"},
         ]))
         _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
@@ -581,21 +581,21 @@ class TestEmailDeduplication:
             "Email must be processed before checking processed_ids"
         )
         # Verify processed_ids is populated in the config
-        state = http.get(f"{{server}}/api/state").json()
+        state = http.get(f"{server}/api/state").json()
         configs = state["app_config"].get("email_configs", [])
         assert configs, "Email config must still exist"
         processed_ids = configs[0].get("processed_ids", [])
         assert len(processed_ids) >= 1, (
-            f"processed_ids must have at least 1 entry after processing, got: {{processed_ids}}"
+            f"processed_ids must have at least 1 entry after processing, got: {processed_ids}"
         )
 
     def test_same_email_not_processed_twice(self, http, server, data_dir):
         """Un email traité ne doit PAS être traité une 2ème fois lors du poll suivant."""
         before = snapshot_output(data_dir)
         _send(make_pdf([
-            {{"kind": "content", "text": "Dedup page 1"}},
-            {{"kind": "qr", "value": TRIGGER}},
-            {{"kind": "content", "text": "Dedup page 2"}},
+            {"kind": "content", "text": "Dedup page 1"},
+            {"kind": "qr", "value": TRIGGER},
+            {"kind": "content", "text": "Dedup page 2"},
         ]))
         _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
@@ -612,30 +612,30 @@ class TestEmailDeduplication:
         after_second = snapshot_output(data_dir)
         new_after_second = after_second - before
         assert new_after_second == new_after_first, (
-            f"Email reprocessed! New files appeared: {{new_after_second - new_after_first}}"
+            f"Email reprocessed! New files appeared: {new_after_second - new_after_first}"
         )
 
     def test_reset_ids_allows_reprocessing(self, http, server, data_dir):
         """Après /api/email/reset_ids, le même email peut être retraité."""
         before = snapshot_output(data_dir)
         _send(make_pdf([
-            {{"kind": "content", "text": "Reset test"}},
-            {{"kind": "qr", "value": TRIGGER}},
-            {{"kind": "content", "text": "After trigger"}},
+            {"kind": "content", "text": "Reset test"},
+            {"kind": "qr", "value": TRIGGER},
+            {"kind": "content", "text": "After trigger"},
         ]))
         _create_config(http, server, action="read")
         r1 = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert r1.status not in ("timeout",), "First processing must complete"
 
         # Get config id
-        state = http.get(f"{{server}}/api/state").json()
+        state = http.get(f"{server}/api/state").json()
         config_id = state["app_config"]["email_configs"][0]["id"]
 
         # Reset processed_ids
-        http.post(f"{{server}}/api/email/reset_ids/{{config_id}}")
+        http.post(f"{server}/api/email/reset_ids/{config_id}")
 
         # Verify processed_ids is now empty
-        state2 = http.get(f"{{server}}/api/state").json()
+        state2 = http.get(f"{server}/api/state").json()
         ec2 = next(
             (c for c in state2["app_config"]["email_configs"] if c["id"] == config_id),
             None
@@ -665,13 +665,13 @@ class TestEmailFilesystemIntegration:
         _purge_greenmail()
         set_config(http, server, separator_placement="before",
                    subdirs_by_trigger=True, delete_source=False)
-        for ec in http.get(f"{{server}}/api/state").json().get(
-                "app_config", {{}}).get("email_configs", []):
-            http.delete(f"{{server}}/api/email/configs/{{ec['id']}}")
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
         yield
-        for ec in http.get(f"{{server}}/api/state").json().get(
-                "app_config", {{}}).get("email_configs", []):
-            http.delete(f"{{server}}/api/email/configs/{{ec['id']}}")
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
         set_triggers(http, server, [])
 
     def _page_count(self, path) -> int:
@@ -688,14 +688,14 @@ class TestEmailFilesystemIntegration:
           - result.output_files contient ≥1 fichier (via filesystem watcher)
           - page-count du document de sortie = 3 (trigger + 2 content)
         """
-        set_triggers(http, server, [{{
+        set_triggers(http, server, [{
             "value": TRIGGER, "page_handling": "keep", "case_sensitive": True
-        }}])
+        }])
         pdf = make_pdf([
-            {{"kind": "content", "text": "Pre-trigger content"}},
-            {{"kind": "qr", "value": TRIGGER, "label": TRIGGER}},
-            {{"kind": "content", "text": "Doc 2 — p1"}},
-            {{"kind": "content", "text": "Doc 2 — p2"}},
+            {"kind": "content", "text": "Pre-trigger content"},
+            {"kind": "qr", "value": TRIGGER, "label": TRIGGER},
+            {"kind": "content", "text": "Doc 2 — p1"},
+            {"kind": "content", "text": "Doc 2 — p2"},
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
@@ -703,22 +703,22 @@ class TestEmailFilesystemIntegration:
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status != "timeout", "Email PDF with trigger must be processed"
         assert len(result.output_files) >= 1, (
-            f"Expected output file in FK3/ subdir, got: {{result}}"
+            f"Expected output file in FK3/ subdir, got: {result}"
         )
         for f in result.output_files:
             pages = self._page_count(f)
             assert pages == 3, (
-                f"keep mode: output must have 3 pages (trigger+2 content), got {{pages}} in {{f.name}}"
+                f"keep mode: output must have 3 pages (trigger+2 content), got {pages} in {f.name}"
             )
 
     def test_no_code_pdf_page_count_via_filesystem(self, http, server, data_dir):
         """PDF sans barcode → no_code/ avec page-count correct."""
-        set_triggers(http, server, [{{
+        set_triggers(http, server, [{
             "value": TRIGGER, "page_handling": "keep", "case_sensitive": True
-        }}])
+        }])
         pdf = make_pdf([
-            {{"kind": "content", "text": "Page 1 no trigger"}},
-            {{"kind": "content", "text": "Page 2 no trigger"}},
+            {"kind": "content", "text": "Page 1 no trigger"},
+            {"kind": "content", "text": "Page 2 no trigger"},
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
@@ -729,18 +729,18 @@ class TestEmailFilesystemIntegration:
         for f in result.no_code_files:
             pages = self._page_count(f)
             assert pages == 2, (
-                f"no-code PDF: expected 2 pages in no_code/, got {{pages}} in {{f.name}}"
+                f"no-code PDF: expected 2 pages in no_code/, got {pages} in {f.name}"
             )
 
     def test_delete_mode_removes_separator_page(self, http, server, data_dir):
         """PDF [content][trigger FK3 delete][content] : page séparateur absente."""
-        set_triggers(http, server, [{{
+        set_triggers(http, server, [{
             "value": TRIGGER, "page_handling": "delete", "case_sensitive": True
-        }}])
+        }])
         pdf = make_pdf([
-            {{"kind": "content", "text": "Pre-trigger"}},
-            {{"kind": "qr", "value": TRIGGER}},
-            {{"kind": "content", "text": "Post-trigger"}},
+            {"kind": "content", "text": "Pre-trigger"},
+            {"kind": "qr", "value": TRIGGER},
+            {"kind": "content", "text": "Post-trigger"},
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
@@ -751,9 +751,9 @@ class TestEmailFilesystemIntegration:
             for f in result.output_files:
                 pages = self._page_count(f)
                 assert pages == 1, (
-                    f"delete mode: output must have 1 page (separator removed), got {{pages}}"
+                    f"delete mode: output must have 1 page (separator removed), got {pages}"
                 )
         # At minimum, no output in no_code/ (the split should produce output files)
         assert len(result.error_files) == 0, (
-            f"No files should go to error/: {{result.error_files}}"
+            f"No files should go to error/: {result.error_files}"
         )
