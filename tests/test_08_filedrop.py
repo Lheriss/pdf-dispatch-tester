@@ -168,8 +168,11 @@ class TestFiledropPageCounts:
         _cleanup_on_pass.append(r)
 
         assert r.status == "success"
-        assert r.docs_count == 2
+        # fixture_two_triggers : [content p1] [QR p2] [content p3-4] [QR p5] [content p6]
+        # Page 1 (avant 1er trigger) va en no_code → 3 docs au total
+        assert r.docs_count == 3, f"Attendu 3 docs (2 output + 1 no_code), obtenu {r.docs_count}"
         assert len(r.output_files) == 2
+        assert len(r.no_code_files) == 1, "La page avant le 1er trigger doit aller en no_code"
 
         pc0, pc1 = r.page_count_of(0), r.page_count_of(1)
         assert pc0 == 3, f"Doc 1 (keep): attendu 3p, obtenu {pc0}"
@@ -191,7 +194,11 @@ class TestFiledropPageCounts:
         _cleanup_on_pass.append(r)
 
         assert r.status == "success"
-        assert r.docs_count == 1
+        # fixture_one_trigger_before : [content p1] [QR p2] [content p3-4]
+        # before+delete : p1→no_code, p2 (QR) supprimée, p3-4→output → 2 docs
+        assert r.docs_count == 2, f"Attendu 2 docs (1 output + 1 no_code), obtenu {r.docs_count}"
+        assert len(r.output_files) == 1
+        assert len(r.no_code_files) == 1
 
         pages = r.page_count_of(0)
         assert pages == 2, (
