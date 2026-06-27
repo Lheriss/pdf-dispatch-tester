@@ -16,11 +16,7 @@ services:
       API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
       BARCODE_SCANNER:      ZXING
-      # 150 DPI is sufficient for reliable QR/Code128 detection and renders
-      # 4× faster than 300 DPI (image area scales with DPI²). This prevents
-      # multi-page PDFs from exceeding the tester's 60 s poll_task timeout
-      # and triggering cascading UNKNOWN failures in subsequent test phases.
-      BARCODE_DPI:          "150"
+      BARCODE_DPI:          "300"   # Pass 2 verify DPI; two-pass scan keeps latency low
       MAX_LOG_ENTRIES:      "500"
       FILE_STABLE_TIMEOUT:  "15"
       FILE_STABLE_INTERVAL: "1"
