@@ -266,6 +266,21 @@ class TestEmailProcessing:
     pdf-dispatch polls within ≤30 s.
     """
 
+    @pytest.fixture(autouse=True)
+    def _teardown(self, http, server):
+        """Delete all email configs before and after each test to prevent
+        stale configs from contaminating subsequent tests.
+        Without this, lingering configs keep polling Greenmail and process
+        emails that later tests expect to be ignored (filter_from, dedup, etc.).
+        """
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
+        yield
+        for ec in http.get(f"{server}/api/state").json().get(
+                "app_config", {}).get("email_configs", []):
+            http.delete(f"{server}/api/email/configs/{ec['id']}")
+
     def test_plain_pdf_goes_to_no_code(self, http, server, data_dir):
         """PDF with no trigger code → output/no_code/.
 
@@ -575,7 +590,6 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "Doc 2"},
         ]))
-        _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status not in ("timeout",), (
             "Email must be processed before checking processed_ids"
@@ -597,7 +611,6 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "Dedup page 2"},
         ]))
-        _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status not in ("timeout",), "First processing must complete"
 
@@ -623,7 +636,6 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "After trigger"},
         ]))
-        _create_config(http, server, action="read")
         r1 = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert r1.status not in ("timeout",), "First processing must complete"
 
@@ -699,7 +711,6 @@ class TestEmailFilesystemIntegration:
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
-        _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status != "timeout", "Email PDF with trigger must be processed"
         assert len(result.output_files) >= 1, (
@@ -722,7 +733,6 @@ class TestEmailFilesystemIntegration:
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
-        _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status != "timeout"
         assert len(result.no_code_files) >= 1
@@ -744,7 +754,6 @@ class TestEmailFilesystemIntegration:
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
-        _create_config(http, server, action="read")
         result = _poll_result(http, server, data_dir, before, timeout=90.0)
         assert result.status != "timeout"
         if result.output_files:
