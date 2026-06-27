@@ -657,8 +657,15 @@ class TestApiMaliciousPayload:
                 pass  # Slow processing is acceptable; upload check already passed
 
     def test_large_pdf_within_limit(self, http, server):
-        """12 pages, well within MAX_PAGES=50. Must succeed."""
-        pages = [{"kind": "content", "text": f"Page {i}"} for i in range(12)]
+        """Multi-page PDF, well within MAX_PAGES=50. Must succeed.
+
+        Page count reduced 12→5: at BARCODE_DPI=300 each page takes ~26 MB
+        of RAM for rasterisation. On this NAS 12 pages took >60 s (right at
+        the poll_task timeout), causing a cascade of ~168 UNKNOWN tests in
+        subsequent phases. 5 pages still exercises the full multi-page
+        pipeline and completes in ~25 s, well within the 60 s timeout.
+        """
+        pages = [{"kind": "content", "text": f"Page {i}"} for i in range(5)]
         task = upload_and_wait(http, server, make_pdf(pages), timeout=60.0)
         assert task["status"] == "success"
 
