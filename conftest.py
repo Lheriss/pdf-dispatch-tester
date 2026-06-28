@@ -22,6 +22,99 @@ from tester_logger import TesterLogger
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Session header — version + configuration effective
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _log_session_header(log, http_session: "requests.Session", server: str) -> None:
+    """Log a comprehensive header at the start of each test session.
+
+    Gathers and prints:
+      · pdf-dispatch SHA + toutes les constantes effectives (via GET /api/runtime)
+      · pdf-dispatch-tester SHA (APP_VERSION injectée au build) + variables env
+      · GreenMail version (bannière IMAP login)
+
+    Ne lève jamais d'exception : chaque section est indépendante et gère
+    ses propres erreurs pour ne pas bloquer le démarrage des tests.
+    """
+    import imaplib
+    import os
+    import re as _re
+
+    W = "═" * 50
+
+    def _info(msg: str) -> None:
+        log.info(msg)
+
+    _info(W)
+
+    # ── pdf-dispatch ──────────────────────────────────────────────
+    _info("── pdf-dispatch " + "─" * 33)
+    try:
+        r = http_session.get(f"{server}/api/runtime", timeout=5)
+        r.raise_for_status()
+        rt = r.json()
+        sha = (rt.get("app_version") or "?")[:8]
+        _info(f"SHA            : {sha}")
+        _info(f"BARCODE_DPI    : {rt.get('barcode_dpi', '?')!s:<8}  "
+              f"BARCODE_DPI_SCAN : {rt.get('barcode_dpi_scan', '?')}")
+        _info(f"BARCODE_SCANNER: {rt.get('barcode_scanner', '?')!s:<8}  "
+              f"BARCODE_UPSCALE  : {rt.get('barcode_upscale', '?')}")
+        _info(f"MAX_PAGES      : {rt.get('max_pages', '?')!s:<8}  "
+              f"MAX_UPLOAD_MB    : {rt.get('max_upload_mb', '?')}")
+        _info(f"MAX_CONCURRENT : {rt.get('max_concurrent_processing', '?')!s:<8}  "
+              f"MAX_WORKER_THREADS: {rt.get('max_worker_threads', '?')}")
+        _info(f"FILE_STABLE_TIMEOUT : {rt.get('file_stable_timeout', '?')!s:<6}  "
+              f"FILE_STABLE_INTERVAL: {rt.get('file_stable_interval', '?')}")
+        _info(f"API_TASK_TIMEOUT    : {rt.get('api_task_timeout', '?')}")
+        _info(f"SSRF_PROTECTION: {rt.get('ssrf_protection', '?')!s:<8}  "
+              f"MAX_LOG_ENTRIES  : {rt.get('max_log_entries', '?')}")
+        _info(f"DATA_DIR       : {rt.get('data_dir', '?')}")
+    except Exception as exc:
+        _info(f"  ⚠ /api/runtime indisponible : {exc}")
+
+    _info("")
+
+    # ── pdf-dispatch-tester ───────────────────────────────────────
+    _info("── pdf-dispatch-tester " + "─" * 26)
+    tester_sha = (os.environ.get("APP_VERSION") or "?")[:8]
+    _info(f"SHA            : {tester_sha}")
+    _info(f"TESTER_SERVER  : {os.environ.get('TESTER_SERVER', '?')}")
+    _info(f"TESTER_DATA    : {os.environ.get('TESTER_DATA', '?')}")
+    raw_key = os.environ.get("TESTER_API_KEY", "")
+    key_display = (raw_key[:8] + "…") if len(raw_key) >= 8 else (raw_key or "?")
+    _info(f"TESTER_API_KEY : {key_display}  (8 chars affichés)")
+    _info(f"WEBHOOK_HOST   : {os.environ.get('WEBHOOK_HOST', '?')!s:<16}  "
+          f"WEBHOOK_PORT : {os.environ.get('WEBHOOK_PORT', '?')}")
+    gm_smtp_h = os.environ.get("GREENMAIL_SMTP_HOST", "greenmail")
+    gm_smtp_p = os.environ.get("GREENMAIL_SMTP_PORT", "3025")
+    gm_imap_h = os.environ.get("GREENMAIL_IMAP_HOST", "greenmail")
+    gm_imap_p = os.environ.get("GREENMAIL_IMAP_PORT", "3143")
+    _info(f"GREENMAIL_SMTP : {gm_smtp_h}:{gm_smtp_p}")
+    _info(f"GREENMAIL_IMAP : {gm_imap_h}:{gm_imap_p}")
+    _info(f"WEB_MODE       : {os.environ.get('WEB_MODE', '?')!s:<16}  "
+          f"WEB_PORT : {os.environ.get('WEB_PORT', '?')}")
+    _info(f"TZ             : {os.environ.get('TZ', '?')}")
+
+    _info("")
+
+    # ── GreenMail ─────────────────────────────────────────────────
+    _info("── GreenMail " + "─" * 37)
+    try:
+        M = imaplib.IMAP4(gm_imap_h, int(gm_imap_p))
+        banner = (M.welcome or b"").decode("utf-8", errors="replace")
+        try:
+            M.logout()
+        except Exception:
+            pass
+        m = _re.search(r"GreenMail\s+v?([\d.]+)", banner)
+        gm_ver = m.group(1) if m else f"? (bannière: {banner.strip()[:60]})"
+        _info(f"Version        : {gm_ver}  (depuis bannière IMAP login)")
+    except Exception as exc:
+        _info(f"  ⚠ GreenMail IMAP non disponible : {exc}")
+
+    _info(W)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI options
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -105,6 +198,7 @@ def http(server, api_key, log) -> requests.Session:
         r = s.get(f"{server}/healthz", timeout=5)
         r.raise_for_status()
         log.info(f"✓ Connected to pdf-dispatch at {server}")
+        _log_session_header(log, s, server)
     except Exception as exc:
         pytest.exit(
             f"\n❌ Cannot reach pdf-dispatch at {server}\n"
