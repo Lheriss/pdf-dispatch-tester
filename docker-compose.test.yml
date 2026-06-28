@@ -20,10 +20,10 @@ services:
       BARCODE_SCANNER:  ZXING
       BARCODE_DPI:      "300"   # Pass 2 — high-res re-decode on pages where a code
                                 #  was detected in pass 1.  300 DPI = maximum accuracy.
-      BARCODE_DPI_SCAN: "300"   # Pass 1 — fast scan of all pages to locate codes.
-                                #  Same value as BARCODE_DPI → single-pass mode (max
-                                #  reliability in the test env; speed is secondary).
-                                #  Production default: 200 (faster, email-safe).
+      BARCODE_DPI_SCAN: "200"   # Pass 1 — fast scan of all pages to locate codes.
+                                #  200 DPI = production default → tests the real behavior.
+                                #  Pages where a code is detected are re-scanned at
+                                #  BARCODE_DPI (300) for full accuracy (two-pass mode).
 
       # ── Logging & stability ───────────────────────────────────────────────────
       MAX_LOG_ENTRIES:      "500"
