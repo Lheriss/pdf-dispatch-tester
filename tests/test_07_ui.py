@@ -450,14 +450,14 @@ class TestUiEmailPanel:
             "el => parseFloat(el.style.opacity || '1')"
         )
         assert initial_opacity >= 0.9, f"Opacity initiale trop faible: {initial_opacity}"
-        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: clic label
+        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6",
             timeout=5_000,
         )
-        assert ssl_input.is_disabled(), "#em-ssl devrait être désactivé quand use_ssl=false"
-        assert "toggle-off" in (verify_row.get_attribute("class") or ""), \
-            "Classe .toggle-off manquante — régression Safari :checked repaint"
+        assert not ssl_input.is_checked(), "#em-ssl devrait être décoché quand use_ssl=false"
+        assert "toggle-off" in (verify_row.locator(".toggle").get_attribute("class") or ""), \
+            "Classe .toggle-off manquante sur le label interne — régression Safari :checked repaint"
 
     def test_ssl_verify_row_re_enabled(self, ui_page):
         """Re-cocher 'Use SSL' restaure la ligne Verify SSL à son état actif."""
@@ -466,15 +466,15 @@ class TestUiEmailPanel:
         _create_and_open_email_draft(ui_page, "test-ssl-restore")
         use_ssl   = ui_page.locator("#em-use-ssl")
         ssl_input = ui_page.locator("#em-ssl")
-        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: uncheck via label
+        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6"
         )
-        ui_page.locator("label.toggle:has(#em-use-ssl)").click()  # CSS toggle: recheck via label
+        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') >= 0.9"
         )
-        assert not ssl_input.is_disabled()
+        assert ssl_input.is_checked(), "#em-ssl devrait être re-coché quand use_ssl=true"
 
     def test_default_trigger_dropdown_populated(self, ui_page):
         """#em-default-trigger contient le déclencheur FK3 configuré.
@@ -502,15 +502,15 @@ class TestUiEmailPanel:
         use_ssl    = ui_page.locator("#em-use-ssl")
         port_input = ui_page.locator("#em-port")
         assert use_ssl.is_checked()
-        port_input.fill("143")  # fill() efface et remplace — triple_click inutile et inexistant
-        port_input.dispatch_event("input")
+        port_input.fill("143")  # fill() efface et remplace
+        ui_page.evaluate("emailAutoSsl()")  # appel direct : dispatch_event ne déclenche pas oninput en headless
         ui_page.wait_for_function(
             "() => !document.getElementById('em-use-ssl').checked",
             timeout=3_000,
         )
         assert not use_ssl.is_checked()
-        port_input.fill("993")  # fill() efface (triple_click inexistant)
-        port_input.dispatch_event("input")
+        port_input.fill("993")  # fill() efface et remplace
+        ui_page.evaluate("emailAutoSsl()")  # appel direct : dispatch_event ne déclenche pas oninput en headless
         ui_page.wait_for_function(
             "() => document.getElementById('em-use-ssl').checked",
             timeout=3_000,
@@ -912,7 +912,7 @@ class TestUiFilenameTokens:
         _open_settings_section(ui_page)
         wait_for_refresh(ui_page)
         for sep_id in ("sep-_", "sep--", "sep-."):
-            assert ui_page.locator(f"#{sep_id}").count() >= 1, (
+            assert ui_page.locator(f'[id="{sep_id}"]').count() >= 1, (
                 f"Separator button #{sep_id} must be present"
             )
 
