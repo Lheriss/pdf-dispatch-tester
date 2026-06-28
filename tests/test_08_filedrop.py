@@ -174,7 +174,10 @@ class TestFiledropPageCounts:
         assert len(r.output_files) == 2
         assert len(r.no_code_files) == 1, "La page avant le 1er trigger doit aller en no_code"
 
-        pc0, pc1 = r.page_count_of(0), r.page_count_of(1)
+        # Use output_files directly (sorted by name) to skip the no_code file
+        # which carries the lowest counter and would be first in all_docs.
+        pc0 = r.page_count(r.output_files[0])
+        pc1 = r.page_count(r.output_files[1])
         assert pc0 == 3, f"Doc 1 (keep): attendu 3p, obtenu {pc0}"
         assert pc1 == 2, f"Doc 2 (keep): attendu 2p, obtenu {pc1}"
         log.info(f"  2 triggers keep : doc1={pc0}p, doc2={pc1}p ✓")
@@ -200,7 +203,8 @@ class TestFiledropPageCounts:
         assert len(r.output_files) == 1
         assert len(r.no_code_files) == 1
 
-        pages = r.page_count_of(0)
+        # output_files[0] is the trigger doc; no_code would be all_docs[0]
+        pages = r.page_count(r.output_files[0])
         assert pages == 2, (
             f"Page séparateur doit être exclue en mode delete (attendu 2p, obtenu {pages})"
         )
