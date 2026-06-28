@@ -58,26 +58,31 @@ def data_dir(cfg) -> Path:
     return Path(p)
 
 
-_GREENMAIL_API = "http://greenmail:8080"
+_GREENMAIL_API = "http://greenmail:8080"  # kept for reference; REST API absent in 2.0.1
 
 
 def _purge_greenmail():
-    """Delete all messages from Greenmail via its REST API.
+    """Purge the Greenmail inbox via direct IMAP connection.
 
-    Prevents email accumulation across tests: without this, each new
-    email config (processed_ids=[]) would reprocess all previous tests'
-    emails, producing stale output at unpredictable times.
+    Prevents email accumulation across tests: without this, each new email
+    config (processed_ids=[]) would reprocess all previous tests' emails,
+    producing stale output at unpredictable times.
 
-    Greenmail 2.x API: DELETE /api/user/{email}/messages
-    Silent no-op if Greenmail API is unavailable (e.g. local dev run).
+    NOTE: Greenmail 2.0.1 standalone does NOT expose the REST endpoint
+    DELETE /api/user/{email}/messages, so the previous urllib-based approach
+    silently failed every time.  Direct IMAP is reliable and fast.
     """
     try:
-        import urllib.request
-        req = urllib.request.Request(
-            f"{_GREENMAIL_API}/api/user/{_EMAIL_ADDR}/messages",
-            method="DELETE",
-        )
-        urllib.request.urlopen(req, timeout=3)
+        import imaplib
+        M = imaplib.IMAP4(_IMAP_HOST, _IMAP_PORT)
+        M.login(_IMAP_USER, _PASSWORD)
+        M.select("INBOX")
+        _, data = M.search(None, "ALL")
+        if data[0]:
+            uids = data[0].decode().replace(" ", ",")
+            M.store(uids, "+FLAGS", "\\Deleted")
+            M.expunge()
+        M.logout()
     except Exception:
         pass   # non-fatal — tests may be slightly flaky but won't crash
 
