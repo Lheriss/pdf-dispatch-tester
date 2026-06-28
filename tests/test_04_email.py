@@ -173,10 +173,15 @@ def _get_config_id(http, server, name: str = "phase4-greenmail") -> str | None:
     return None
 
 
-def _poll_result(http, server, data_dir, before, timeout=60.0) -> EmailDropResult:
-    """Create fresh email config (triggers immediate poll) then wait for output."""
+def _poll_result(http, server, data_dir, before, timeout=60.0, min_count=1) -> EmailDropResult:
+    """Create fresh email config (triggers immediate poll) then wait for output.
+
+    min_count: minimum number of new output files to wait for before returning.
+    Use min_count > 1 when the email contains several attachments so the helper
+    does not return prematurely after the first file is processed.
+    """
     _create_config(http, server)
-    return wait_for_new_output(data_dir, before, timeout=timeout)
+    return wait_for_new_output(data_dir, before, timeout=timeout, min_count=min_count)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -367,7 +372,9 @@ class TestEmailProcessing:
         ]
         before = snapshot_output(data_dir)
         _send(pdfs)
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # min_count=3: wait until all 3 attachments are processed before returning,
+        # so subsequent tests don't see leftover files from this one.
+        result = _poll_result(http, server, data_dir, before, timeout=90.0, min_count=3)
         assert result.status != "timeout", "No output after 90 s"
         total = len(result.all_files)
         assert total == 3, (
@@ -599,13 +606,14 @@ class TestEmailDeduplication:
         assert result.status not in ("timeout",), (
             "Email must be processed before checking processed_ids"
         )
-        # Verify processed_ids is populated in the config
+        # _sanitize_config_for_client strips processed_ids from app_config to keep
+        # the response lean; the authoritative count is in config.email_configs_status.
         state = http.get(f"{server}/api/state").json()
-        configs = state["app_config"].get("email_configs", [])
-        assert configs, "Email config must still exist"
-        processed_ids = configs[0].get("processed_ids", [])
-        assert len(processed_ids) >= 1, (
-            f"processed_ids must have at least 1 entry after processing, got: {processed_ids}"
+        email_status = state.get("config", {}).get("email_configs_status", [])
+        assert email_status, "Email config must still exist in status"
+        processed_ids_count = email_status[0].get("processed_ids_count", 0)
+        assert processed_ids_count >= 1, (
+            f"processed_ids must have at least 1 entry after processing, got: {processed_ids_count}"
         )
 
     def test_same_email_not_processed_twice(self, http, server, data_dir):
