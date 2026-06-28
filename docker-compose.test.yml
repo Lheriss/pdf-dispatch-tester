@@ -12,7 +12,9 @@ services:
       PUID:     "1026"
       PGID:     "100"
       TZ:       "Europe/Zurich"
-      APP_VERSION: "test"
+      # APP_VERSION is injected at build time via ARG GIT_SHA in the Dockerfile.
+      # Do NOT set it here — a docker-compose value would override the build arg
+      # and break the SHA tracing in /api/runtime and session.log.
       API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
 
