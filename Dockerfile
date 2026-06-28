@@ -27,4 +27,9 @@ RUN chmod +x entrypoint.sh
 # /data is mounted at runtime (shared with pdf-dispatch-test)
 VOLUME ["/data"]
 
+# Inject Git SHA at build time — accessible via os.environ['APP_VERSION'].
+# Set by GitHub Actions: --build-arg GIT_SHA=${{ github.sha }}
+ARG GIT_SHA=unknown
+ENV APP_VERSION=${GIT_SHA}
+
 ENTRYPOINT ["./entrypoint.sh"]
