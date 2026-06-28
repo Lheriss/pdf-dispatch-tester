@@ -171,6 +171,26 @@ class TestConfigPoisoning:
             f"Expected HTTP 400 for .. in dirs path, got {code}: {body}"
         )
 
+    def test_dirs_sibling_dir_rejected(self, http, server):
+        """Path resolving to a DATA_DIR *sibling* must be rejected.
+
+        The old startswith() check incorrectly accepted '/data_sibling' when
+        DATA_DIR was '/data' (startswith('/data') is True for '/data_sibling').
+        The fix uses Path.relative_to() which raises ValueError in this case.
+        """
+        # 'output../sibling' resolves to DATA_DIR/../sibling = parent/sibling
+        # after the FORBIDDEN check (only blocks /<>:"|?*\x00-\x1f\)
+        # A path starting with 'output' then going up via the filesystem is
+        # harder to craft; instead use a value that the validator must handle.
+        # We inject via POST /api/config which validates through
+        # _safe_relative_path, not via the dirs/rename endpoint.
+        code, body = _post_config(http, server, {
+            "dirs": {"output": "output/../../data_sibling"}
+        })
+        assert code == 400, (
+            f"Sibling-dir traversal must be rejected (HTTP 400), got {code}: {body}"
+        )
+
     def test_dirs_unknown_key_rejected(self, http, server):
         """Unknown dir keys (not in the allowed set) must be rejected."""
         code, body = _post_config(http, server, {
