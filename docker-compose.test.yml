@@ -15,15 +15,32 @@ services:
       APP_VERSION: "test"
       API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
-      BARCODE_SCANNER:      ZXING
-      BARCODE_DPI:          "300"   # Pass 2 verify DPI; two-pass scan keeps latency low
+
+      # ── Barcode scanning ─────────────────────────────────────────────────────
+      BARCODE_SCANNER:  ZXING
+      BARCODE_DPI:      "300"   # Pass 2 — high-res re-decode on pages where a code
+                                #  was detected in pass 1.  300 DPI = maximum accuracy.
+      BARCODE_DPI_SCAN: "300"   # Pass 1 — fast scan of all pages to locate codes.
+                                #  Same value as BARCODE_DPI → single-pass mode (max
+                                #  reliability in the test env; speed is secondary).
+                                #  Production default: 200 (faster, email-safe).
+
+      # ── Logging & stability ───────────────────────────────────────────────────
       MAX_LOG_ENTRIES:      "500"
       FILE_STABLE_TIMEOUT:  "15"
       FILE_STABLE_INTERVAL: "1"
-      MAX_UPLOAD_MB:        "20"
-      MAX_PAGES:            "50"
+
+      # ── Resource limits (intentionally tighter than prod for test coverage) ───
+      MAX_UPLOAD_MB:             "20"   # test_email_attachment_too_large expects <20 MB guard
+      MAX_PAGES:                 "50"   # test_email_max_pages sends 60-page PDF → rejected
       MAX_CONCURRENT_PROCESSING: "2"
-      API_TASK_TIMEOUT:     "120"
+      MAX_WORKER_THREADS:        "8"    # max(8, MAX_CONCURRENT_PROCESSING + 4) = 8
+
+      # ── Timeouts ─────────────────────────────────────────────────────────────
+      API_TASK_TIMEOUT: "120"
+
+      # ── Security (disabled for tests — tester calls localhost webhooks) ───────
+      SSRF_PROTECTION: "off"
 
     volumes:
       - "/volume1/docker/pdf_test/data:/data"
