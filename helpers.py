@@ -273,10 +273,14 @@ def wait_for_new_output(
     before: set[Path],
     timeout: float = 60.0,
     poll: float = 1.0,
+    min_count: int = 1,
 ) -> EmailDropResult:
     """
-    Poll output/ until at least one new PDF appears (compared to *before*).
+    Poll output/ until at least *min_count* new PDFs appear (compared to *before*).
     Give it up to *timeout* seconds, then return whatever was found.
+
+    Use min_count > 1 when the test expects several files (e.g. multiple email
+    attachments) so the function does not return prematurely after the first file.
     """
     import time
     output   = data_dir / "output"
@@ -287,7 +291,7 @@ def wait_for_new_output(
     while time.monotonic() < deadline:
         after = snapshot_output(data_dir)
         new   = after - before
-        if new:
+        if len(new) >= min_count:
             out_files = [f for f in new if error not in f.parents and no_code not in f.parents]
             nc_files  = [f for f in new if no_code in f.parents]
             err_files = [f for f in new if error in f.parents]
