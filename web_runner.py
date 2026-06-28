@@ -204,6 +204,27 @@ GROUPS = [
         "args": ["tests/test_04_email.py::TestEmailLimits"],
         "available": True, "sub": True, "parent": "phase4",
     },
+    {
+        "id": "phase4_password",
+        "label": "↳ Roundtrip mot de passe email",
+        "desc": "password_enc stocke + non expose + connexion OK · 4 tests",
+        "args": ["tests/test_04_email.py::TestEmailPasswordRoundtrip"],
+        "available": True, "sub": True, "parent": "phase4",
+    },
+    {
+        "id": "phase4_dedup",
+        "label": "↳ Deduplication processed_ids",
+        "desc": "Pas de double traitement + reset_ids · 3 tests",
+        "args": ["tests/test_04_email.py::TestEmailDeduplication"],
+        "available": True, "sub": True, "parent": "phase4",
+    },
+    {
+        "id": "phase4_filesystem",
+        "label": "↳ Integration email → filesystem",
+        "desc": "Verification croisee API + pypdf page-count · 3 tests",
+        "args": ["tests/test_04_email.py::TestEmailFilesystemIntegration"],
+        "available": True, "sub": True, "parent": "phase4",
+    },
     # ─── Phase 5 ─── Sécurité ─────────────────────────────────────────────
     {
         "id": "phase5",
@@ -393,28 +414,6 @@ GROUPS = [
         "desc": "{ok:false, error:...} sur tous les endpoints d'erreur · 6 tests",
         "args": ["tests/test_02_api.py::TestApiErrorFormat"],
         "available": True, "sub": True, "parent": "phase2",
-    },
-    # ─── Phase 4 — supplementaire ────────────────────────────────────────────
-    {
-        "id": "phase4_password",
-        "label": "↳ Roundtrip mot de passe email",
-        "desc": "password_enc stocke + non expose + connexion OK · 4 tests",
-        "args": ["tests/test_04_email.py::TestEmailPasswordRoundtrip"],
-        "available": True, "sub": True, "parent": "phase4",
-    },
-    {
-        "id": "phase4_dedup",
-        "label": "↳ Deduplication processed_ids",
-        "desc": "Pas de double traitement + reset_ids · 3 tests",
-        "args": ["tests/test_04_email.py::TestEmailDeduplication"],
-        "available": True, "sub": True, "parent": "phase4",
-    },
-    {
-        "id": "phase4_filesystem",
-        "label": "↳ Integration email → filesystem",
-        "desc": "Verification croisee API + pypdf page-count · 3 tests",
-        "args": ["tests/test_04_email.py::TestEmailFilesystemIntegration"],
-        "available": True, "sub": True, "parent": "phase4",
     },
 
 ]
