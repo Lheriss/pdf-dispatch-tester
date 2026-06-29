@@ -450,7 +450,11 @@ class TestUiEmailPanel:
             "el => parseFloat(el.style.opacity || '1')"
         )
         assert initial_opacity >= 0.9, f"Opacity initiale trop faible: {initial_opacity}"
-        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
+        ui_page.evaluate(
+            "const el = document.getElementById('em-use-ssl');"
+            " el.checked = false;"
+            " el.dispatchEvent(new Event('change', {bubbles:true}));"
+        )  # set checked=false + fire change — .click() cause double-toggle (bubble vers label)
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6",
             timeout=5_000,
@@ -466,11 +470,19 @@ class TestUiEmailPanel:
         _create_and_open_email_draft(ui_page, "test-ssl-restore")
         use_ssl   = ui_page.locator("#em-use-ssl")
         ssl_input = ui_page.locator("#em-ssl")
-        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
+        ui_page.evaluate(
+            "const el = document.getElementById('em-use-ssl');"
+            " el.checked = false;"
+            " el.dispatchEvent(new Event('change', {bubbles:true}));"
+        )  # set checked=false + fire change — .click() cause double-toggle (bubble vers label)
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') < 0.6"
         )
-        ui_page.evaluate("document.getElementById('em-use-ssl').click()")  # hidden input: bypass CSS overlay
+        ui_page.evaluate(
+            "const el = document.getElementById('em-use-ssl');"
+            " el.checked = true;"
+            " el.dispatchEvent(new Event('change', {bubbles:true}));"
+        )  # set checked=true + fire change — .click() cause double-toggle (bubble vers label)
         ui_page.wait_for_function(
             "() => parseFloat(document.getElementById('em-ssl-row').style.opacity || '1') >= 0.9"
         )
