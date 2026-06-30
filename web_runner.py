@@ -764,7 +764,16 @@ def run_tests():
     with _lock:
         if _job and _job.get("running"):
             return jsonify({"error": "Tests déjà en cours"}), 409
-        cmd  = ["python", "-m", "pytest", "-v", "--tb=short", "--no-header"]
+        cmd  = ["python", "-m", "pytest", "-v", "--tb=short", "--no-header",
+                # --log-cli-* makes pytest mirror log.info()/error() calls
+                # (session header, per-test detail) live to stdout, bypassing
+                # pytest's normal output capture — this is what makes them
+                # show up in the SSE /stream journal below, not just in
+                # logs/<run>/session.log. Format mirrors TesterLogger's own
+                # file/console formatter for visual consistency.
+                "--log-cli-level=INFO",
+                "--log-cli-format=%(asctime)s.%(msecs)03d  %(levelname)-7s  %(message)s",
+                "--log-cli-date-format=%H:%M:%S"]
         seen: list[str] = []
         for gid in selected:
             grp = next((g for g in GROUPS if g["id"] == gid and g["available"]), None)
