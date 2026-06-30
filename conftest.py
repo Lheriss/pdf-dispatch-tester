@@ -25,7 +25,7 @@ from tester_logger import TesterLogger
 # Session header — version + configuration effective
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _log_session_header(log, http_session: "requests.Session", server: str) -> None:
+def _log_session_header(log, http_session: "requests.Session", server: str, term=None) -> None:
     """Log a comprehensive header at the start of each test session.
 
     Gathers and prints:
@@ -35,6 +35,15 @@ def _log_session_header(log, http_session: "requests.Session", server: str) -> N
 
     Ne lève jamais d'exception : chaque section est indépendante et gère
     ses propres erreurs pour ne pas bloquer le démarrage des tests.
+
+    `term`, si fourni (le TerminalReporter de pytest), reçoit également
+    chaque ligne via write_line(). C'est ce qui rend l'en-tête visible en
+    direct dans le journal web (web_runner.py /stream) : le terminal
+    reporter écrit sur le flux non capturé par pytest, exactement comme
+    les lignes PASSED/FAILED — contrairement à log.info() qui finit dans
+    logs/<run>/session.log uniquement (capture stdout normale de pytest).
+    Seul l'en-tête passe par ce canal ; le reste du logging par test n'est
+    pas affecté.
     """
     import imaplib
     import os
@@ -43,6 +52,8 @@ def _log_session_header(log, http_session: "requests.Session", server: str) -> N
     W = "═" * 50
 
     def _info(msg: str) -> None:
+        if term is not None:
+            term.write_line(msg)
         log.info(msg)
 
     _info(W)
@@ -181,7 +192,7 @@ def log() -> TesterLogger:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")
-def http(server, api_key, log) -> requests.Session:
+def http(request, server, api_key, log) -> requests.Session:
     """
     Authenticated requests.Session pointing at the test instance.
     All HTTP traffic is automatically logged to logs/<run>/http_traffic.jsonl.
@@ -198,7 +209,8 @@ def http(server, api_key, log) -> requests.Session:
         r = s.get(f"{server}/healthz", timeout=5)
         r.raise_for_status()
         log.info(f"✓ Connected to pdf-dispatch at {server}")
-        _log_session_header(log, s, server)
+        term = request.config.pluginmanager.get_plugin("terminalreporter")
+        _log_session_header(log, s, server, term=term)
     except Exception as exc:
         pytest.exit(
             f"\n❌ Cannot reach pdf-dispatch at {server}\n"
