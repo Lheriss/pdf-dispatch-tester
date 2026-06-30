@@ -97,7 +97,12 @@ class TesterLogger:
         # Human-readable session log
         self._log = logging.getLogger(f"tester.{run_id}")
         self._log.setLevel(level)
-        self._log.propagate = False
+        # propagate=True: lets pytest's --log-cli mechanism (enabled in
+        # web_runner.py for WEB_MODE) mirror every log.info()/error() call
+        # into the live SSE journal shown in the web UI, in addition to the
+        # file/console handlers below. Root has no handlers of its own, so
+        # propagation is a no-op outside of pytest's live-log capture.
+        self._log.propagate = True
 
         fmt = logging.Formatter("%(asctime)s.%(msecs)03d  %(levelname)-7s  %(message)s",
                                 datefmt="%H:%M:%S")
