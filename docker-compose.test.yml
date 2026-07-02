@@ -94,12 +94,17 @@ services:
       # Single line — avoid YAML folding ambiguity with Portainer.
       # Domain @greenmail matches the container hostname → no external DNS lookup.
       # Format GreenMail 2.x : login:password@domain
-      #   BREAKING CHANGE vs 1.x — en v2.x le LOGIN IMAP est l'adresse email COMPLÈTE.
       #   Avec users=pdftester:pdftester@greenmail :
-      #     IMAP LOGIN username = pdftester@greenmail  ← adresse complète (PAS le local-part)
+      #     IMAP LOGIN username = pdftester        ← local-part UNIQUEMENT (vérifié empiriquement)
       #     IMAP password       = pdftester
       #     SMTP To:            = pdftester@greenmail
-      # ⚠ NE PAS revenir à 'pdftester' seul — GreenMail 2.x rejette le local-part.
-      # → IMAP user = pdftester@greenmail  /  password = pdftester  /  email = pdftester@greenmail
+      #
+      # ⚠⚠⚠ SOURCE DE RÉGRESSION RÉPÉTÉE ⚠⚠⚠
+      # Le tester utilise username='pdftester' (local-part) pour le LOGIN IMAP.
+      # NE PAS changer en 'pdftester@greenmail' — cela casse les tests sur ce NAS.
+      # GreenMail 2.0.1 ici accepte le local-part, contrairement à la doc officielle 2.x.
+      # Le fixture _greenmail_user_setup (conftest.py) crée l'utilisateur via
+      # l'API REST GreenMail (port 8080) avant les tests, sans dépendre du format.
+      # → IMAP user = pdftester  /  password = pdftester  /  email = pdftester@greenmail
       GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false"
     # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
