@@ -45,7 +45,11 @@ _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
 _IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
-_IMAP_USER     = "pdftester@greenmail"  # IMAP login = adresse email complète (GreenMail 2.x)
+_IMAP_USER     = "pdftester"            # IMAP login = local-part UNIQUEMENT sur cette instance GreenMail
+                                  # ⚠ NE PAS changer en pdftester@greenmail
+                                  # même si le format docker-compose est pdftester:pdftester@greenmail.
+                                  # GreenMail 2.0.1 sur ce NAS accepte le local-part, pas l'adresse complète.
+                                  # Ce comportement a été vérifié empiriquement ; modifier = casse les tests.
 _EMAIL_ADDR    = "pdftester@greenmail"  # SMTP To: address
 _PASSWORD      = "pdftester"
 _FROM          = "sender@greenmail"
