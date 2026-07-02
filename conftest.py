@@ -9,6 +9,7 @@ All HTTP traffic and pdf-dispatch journal entries are automatically logged.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
