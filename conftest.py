@@ -166,6 +166,31 @@ def smtp_cfg(cfg) -> dict:
     return cfg.get("smtp", {})
 
 
+@pytest.fixture(scope="session", autouse=False)
+def _greenmail_user_setup():
+    """
+    Garantit que l'utilisateur GreenMail existe avec le bon mot de passe
+    avant les tests Phase 4 (email).
+
+    Appelle l'API REST GreenMail pour créer/réinitialiser l'utilisateur.
+    Non-bloquant si l'API est inaccessible (warning seulement) car
+    GREENMAIL_OPTS peut aussi avoir créé l'utilisateur au démarrage.
+    """
+    ok = _greenmail_ensure_user()
+    if ok:
+        import logging
+        logging.getLogger(__name__).info(
+            f"GreenMail user {_GREENMAIL_EMAIL!r} créé/vérifié via REST API")
+    else:
+        import warnings
+        warnings.warn(
+            f"GreenMail REST API non disponible — l'utilisateur {_GREENMAIL_EMAIL!r} "
+            "doit exister via GREENMAIL_OPTS ou les tests Phase 4 échoueront.",
+            stacklevel=2,
+        )
+    yield
+
+
 @pytest.fixture(scope="session")
 def imap_cfg(cfg) -> dict:
     return cfg.get("imap", {})
@@ -452,6 +477,69 @@ _GREENMAIL_IMAPS_PORT = 3993
 _GREENMAIL_IMAP_USER = "pdftester@greenmail"  # IMAP login = adresse email complète (GreenMail 2.x)
 _GREENMAIL_EMAIL     = "pdftester@greenmail"  # full email address for SMTP To:
 _GREENMAIL_PASSWORD  = "pdftester"
+_GREENMAIL_API_HOST  = os.environ.get("GREENMAIL_API_HOST", "greenmail")
+_GREENMAIL_API_PORT  = int(os.environ.get("GREENMAIL_API_PORT", "8080"))
+
+
+def _greenmail_ensure_user(
+        host: str = _GREENMAIL_API_HOST,
+        port: int = _GREENMAIL_API_PORT,
+        email: str = _GREENMAIL_EMAIL,
+        password: str = _GREENMAIL_PASSWORD,
+) -> bool:
+    """
+    Crée (ou recrée) l'utilisateur test dans GreenMail via son API REST.
+
+    Pourquoi cette fonction existe :
+    GreenMail 2.x peut ne pas créer les utilisateurs définis dans
+    GREENMAIL_OPTS si le container est géré hors du docker-compose ou si
+    l'option est mal parsée.  L'API REST garantit que l'utilisateur existe
+    avec le bon mot de passe avant les tests IMAP, indépendamment de la
+    configuration du container.
+
+    Retourne True si l'utilisateur a été créé/vérifié, False en cas d'échec
+    non-fatal (les tests eux-mêmes échoueront de manière descriptive).
+    """
+    import urllib.request as _ur
+    import urllib.error   as _ue
+
+    # GreenMail 2.x REST API : POST /greenmail/api/user
+    # Body: {"email":"...","login":"...","password":"..."}
+    # Réponse attendue : 200 (création ou mise à jour silencieuse)
+    api_url = f"http://{host}:{port}/greenmail/api/user"
+    payload = json.dumps({
+        "email":    email,
+        "login":    email,   # GreenMail 2.x : login = adresse email complète
+        "password": password,
+    }).encode("utf-8")
+    req = _ur.Request(api_url, data=payload,
+                      headers={"Content-Type": "application/json"},
+                      method="POST")
+    try:
+        with _ur.urlopen(req, timeout=5) as resp:
+            status = resp.status
+            body   = resp.read().decode("utf-8", errors="replace")
+        if status < 300:
+            return True
+        # GreenMail 2.0.1 retourne 204 ou 409 (user already exists) — les deux sont OK
+        return True
+    except _ue.HTTPError as exc:
+        if exc.code == 409:   # Conflict = user already exists, password may differ
+            # Essayer PUT pour mettre à jour le mot de passe
+            req2 = _ur.Request(f"{api_url}/{email}", data=payload,
+                               headers={"Content-Type": "application/json"},
+                               method="PUT")
+            try:
+                with _ur.urlopen(req2, timeout=5):
+                    pass
+                return True
+            except Exception:
+                pass
+        return False
+    except Exception as exc:
+        # API non disponible (GreenMail démarré sans l'API REST, port fermé, etc.)
+        # → retourner False, le test échouera avec un message IMAP clair
+        return False
 _GREENMAIL_FROM      = "sender@greenmail"
 
 
