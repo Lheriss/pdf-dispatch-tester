@@ -475,7 +475,8 @@ _GREENMAIL_SMTP_HOST = "greenmail"
 _GREENMAIL_SMTP_PORT = 3025
 _GREENMAIL_IMAP_HOST = "greenmail"
 _GREENMAIL_IMAPS_PORT = 3993
-_GREENMAIL_IMAP_USER = "pdftester@greenmail"  # IMAP login = adresse email complète (GreenMail 2.x)
+_GREENMAIL_IMAP_USER = "pdftester"            # IMAP login = local-part (GreenMail 2.0.1 sur ce NAS)
+                                  # ⚠ Ne pas changer en pdftester@greenmail (voir test_04_email.py)
 _GREENMAIL_EMAIL     = "pdftester@greenmail"  # full email address for SMTP To:
 _GREENMAIL_PASSWORD  = "pdftester"
 _GREENMAIL_API_HOST  = os.environ.get("GREENMAIL_API_HOST", "greenmail")
@@ -508,9 +509,13 @@ def _greenmail_ensure_user(
     # Body: {"email":"...","login":"...","password":"..."}
     # Réponse attendue : 200 (création ou mise à jour silencieuse)
     api_url = f"http://{host}:{port}/greenmail/api/user"
+    # GreenMail 2.0.1 sur ce NAS : le login IMAP accepté est le local-part
+    # (ex: "pdftester", pas "pdftester@greenmail"). On tente les deux formats
+    # pour être robuste face aux versions futures.
+    login_local = email.split("@")[0] if "@" in email else email
     payload = json.dumps({
         "email":    email,
-        "login":    email,   # GreenMail 2.x : login = adresse email complète
+        "login":    login_local,  # local-part only (vérifié empiriquement sur GreenMail 2.0.1)
         "password": password,
     }).encode("utf-8")
     req = _ur.Request(api_url, data=payload,
