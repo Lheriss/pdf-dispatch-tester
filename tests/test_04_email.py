@@ -35,6 +35,9 @@ from helpers import (
 )
 from pdf_generator import make_pdf
 
+# Garantir que l'utilisateur GreenMail existe avant tout test de ce module
+pytestmark = pytest.mark.usefixtures("_greenmail_user_setup")
+
 # ── Shared constants ──────────────────────────────────────────────────────────
 
 TRIGGER        = "FK3"          # same as Phase 1 / Phase 2
