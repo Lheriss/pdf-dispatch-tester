@@ -12,7 +12,7 @@ IMAP scan within ≤30 s.  No manual trigger endpoint needed.
 Greenmail connection (defined in docker-compose.test.yml):
   SMTP : greenmail:3025  (plain, no auth)
   IMAPS: greenmail:3993  (SSL, self-signed → verify_ssl=False)
-  user : pdftester@greenmail / pdftester  (IMAP login = pdftester, password = pdftester)
+  user : pdftester@greenmail / pdftester  (IMAP login = pdftester@greenmail [GreenMail 2.x])
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ _SMTP_HOST     = "greenmail"
 _SMTP_PORT     = 3025
 _IMAP_HOST     = "greenmail"
 _IMAP_PORT     = 3143  # plain IMAP (Greenmail; pdf-dispatch uses use_ssl=False)
-_IMAP_USER     = "pdftester"            # IMAP login (login:password@domain format)
+_IMAP_USER     = "pdftester@greenmail"  # IMAP login = adresse email complète (GreenMail 2.x)
 _EMAIL_ADDR    = "pdftester@greenmail"  # SMTP To: address
 _PASSWORD      = "pdftester"
 _FROM          = "sender@greenmail"
