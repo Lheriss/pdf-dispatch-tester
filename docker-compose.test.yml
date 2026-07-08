@@ -98,18 +98,23 @@ services:
     environment:
       # Single line — avoid YAML folding ambiguity with Portainer.
       # Domain @greenmail matches the container hostname → no external DNS lookup.
-      # Format GreenMail 2.x : login:password@domain
-      #   Avec users=pdftester:pdftester@greenmail :
-      #     IMAP LOGIN username = pdftester        ← local-part UNIQUEMENT (vérifié empiriquement)
-      #     IMAP password       = pdftester
-      #     SMTP To:            = pdftester@greenmail
       #
-      # ⚠⚠⚠ SOURCE DE RÉGRESSION RÉPÉTÉE ⚠⚠⚠
-      # Le tester utilise username='pdftester' (local-part) pour le LOGIN IMAP.
-      # NE PAS changer en 'pdftester@greenmail' — cela casse les tests sur ce NAS.
-      # GreenMail 2.0.1 ici accepte le local-part, contrairement à la doc officielle 2.x.
-      # Le fixture _greenmail_user_setup (conftest.py) crée l'utilisateur via
-      # l'API REST GreenMail (port 8080) avant les tests, sans dépendre du format.
-      # → IMAP user = pdftester  /  password = pdftester  /  email = pdftester@greenmail
-      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.verbose=false"
+      # ⚠⚠⚠ RECURRING REGRESSION — READ BEFORE EDITING ⚠⚠⚠
+      # The tester logs in over IMAP as username='pdftester' / password='pdftester'.
+      # GreenMail auto-creates an account on SMTP delivery with login = password =
+      # the *full* To: address ('pdftester@greenmail'), which does NOT match the
+      # IMAP login the tester uses → "Invalid login/password for user id pdftester".
+      # Previous attempts to fix this by preseeding the user (via -Dgreenmail.users
+      # or the REST API on :8080) were fragile: the REST call from the tester was
+      # unreachable under network_mode: service:, and SMTP auto-creation raced ahead.
+      #
+      # ROBUST FIX: -Dgreenmail.auth.disabled makes GreenMail accept ANY password
+      # for any account (documented: "Disables user authentication check, so that
+      # any password works ... GreenMail automatically creates non-existent users").
+      # This is a throwaway test mailserver, so accepting any password is fine, and
+      # it removes the whole login/password-matching problem at the source.
+      # No Phase 4 test asserts that a wrong IMAP password is rejected, so this is safe.
+      # -Dgreenmail.users= is kept so the pdftester@greenmail mailbox exists up front.
+      #   → IMAP login pdftester / any password  ·  SMTP To: pdftester@greenmail
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.auth.disabled -Dgreenmail.verbose=false"
     # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
