@@ -243,6 +243,35 @@ class TestAfterDelete:
         assert r.page_ranges[0] == "pages 1\u20132"
         assert r.page_ranges[1] == "page 4"
 
+    def test_trailing_doc_falls_back_to_no_code(self, dropper, http, server,
+                                                _cleanup, log):
+        """Destination-folder coherence (regression, pdf-dispatch 22490d75).
+
+        An "after + delete" trigger (effective page_handling end_delete)
+        names only the PRECEDING segment; the trailing segment (page 4)
+        carries no trigger and must fall back to output/no_code/.
+
+        Before the fix, end_delete hits were re-processed by the
+        start/delete pass of the segment state machine, so the trailing
+        document silently inherited the trigger name and landed in FK3/.
+        docs_count and page counts were correct, which is why the other
+        TestAfterDelete tests could not catch it.
+        """
+        set_config(http, server, separator_placement="after")
+        set_triggers(http, server, [{"value": TRIGGER, "page_handling": "delete"}])
+        r = dropper.drop(fixture_one_trigger_after(TRIGGER), prefix="after_del_nc")
+        _cleanup.append(r)
+        assert r.status == "success"
+        assert r.docs_count == 2
+        assert len(r.output_files) == 1, (
+            f"Only the named document belongs to {TRIGGER}/, "
+            f"got {len(r.output_files)}: {r.output_files}"
+        )
+        assert len(r.no_code_files) == 1, (
+            "Trailing segment must fall back to no_code/, "
+            f"got {len(r.no_code_files)}: {r.no_code_files}"
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1b — Trigger matching
