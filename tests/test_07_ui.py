@@ -117,7 +117,7 @@ class TestUiSmoke:
 def _open_settings_section(page) -> None:
     """Ouvre #sbody si pas encore ouvert et attend que loadConfig() ait peuplé cfg."""
     if "open" not in (page.locator("#sbody").get_attribute("class") or ""):
-        page.locator(".settings-header").click()
+        page.locator(".settings-header[onclick='toggleSettings()']").click()
     page.wait_for_function("() => typeof cfg !== 'undefined' && !!(cfg && cfg.loaded)")
 
 
@@ -181,13 +181,13 @@ class TestUiTriggers:
         sbody = ui_page.locator("#sbody")
         assert "open" not in (sbody.get_attribute("class") or ""), \
             "#sbody ne devrait pas être ouvert au chargement"
-        ui_page.locator(".settings-header").click()
+        ui_page.locator(".settings-header[onclick='toggleSettings()']").click()
         ui_page.wait_for_function(
             "() => document.getElementById('sbody').classList.contains('open')"
         )
         assert "open" in sbody.get_attribute("class")
         # Toggle retour
-        ui_page.locator(".settings-header").click()
+        ui_page.locator(".settings-header[onclick='toggleSettings()']").click()
         ui_page.wait_for_function(
             "() => !document.getElementById('sbody').classList.contains('open')"
         )
