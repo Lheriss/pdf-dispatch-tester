@@ -3,7 +3,12 @@ version: "3.8"
 services:
 
   pdf-dispatch-test:
-    image: ghcr.io/lheriss/pdf-dispatch:latest
+    image: ghcr.io/lheriss/pdf-dispatch:dev
+    # :dev is a mutable tag republished on every push to the dev branch.
+    # pull_policy: always ensures a fresh pull on each (re)creation instead of
+    # reusing a cached layer — mirror this with Portainer's "re-pull image"
+    # option when updating the stack (see below).
+    pull_policy: always
     container_name: pdf-dispatch-test
     restart: unless-stopped
 
