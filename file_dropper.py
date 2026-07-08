@@ -309,26 +309,30 @@ class FileDropper:
             msg   = ev.get("message", "")
             level = ev.get("level", "info")
 
-            # Terminal error events can occur without a Traitement block
+            # Terminal error events can occur without a processing block
             # (e.g. corrupted PDFs fail before actual processing starts).
+            # Language-agnostic: FR "Timeout stabilisation" / EN "Stabilization timeout".
             if filename in msg and (
                 level == "error" or "✗" in msg or
-                ("Timeout" in msg and "stabilisation" in msg.lower())
+                (re.search(r'timeout', msg, re.I)
+                 and re.search(r'stabili[sz]', msg, re.I))
             ) and not in_block:
                 status    = "error"
                 error_msg = msg
                 continue
 
-            # Block start: "Traitement : filename"
-            if filename in msg and "Traitement" in msg:
+            # Block start: FR "Traitement : filename" / EN "Processing: filename"
+            if filename in msg and ("Traitement" in msg or "Processing" in msg):
                 in_block = True
                 continue
 
             if not in_block:
                 continue
 
-            # Trigger match: "Page N : fractionnement → «trigger»"
-            m = re.search(r'fractionnement → «([^»]+)»', msg)
+            # Trigger match:
+            #   FR "Page N : fractionnement → «trigger»"
+            #   EN "Page N: split → «trigger»"
+            m = re.search(r'(?:fractionnement|split) → «([^»]+)»', msg)
             if m:
                 t = m.group(1)
                 if t not in triggers:
@@ -355,16 +359,22 @@ class FileDropper:
                 in_block  = False
                 continue
 
-            # Timeout: "Timeout stabilisation"
-            if filename in msg and "Timeout" in msg:
+            # Timeout: FR "Timeout stabilisation" / EN "... timeout"
+            if filename in msg and re.search(r'timeout', msg, re.I):
                 status    = "error"
                 error_msg = msg
                 in_block  = False
                 continue
 
-        # If we didn't find a clean block, infer from output files presence
-        if status == "unknown":
-            status = "success"
+        # Success line missing but outputs were parsed inside the block:
+        # derive docs_count from the parsed output lines instead of 0.
+        if status == "success" and docs_count == 0 and outputs:
+            docs_count = len(outputs)
+
+        # No recognisable block at all: report "unknown" honestly so the
+        # calling test fails with a clear message, instead of fabricating
+        # a success with docs_count=0 (which masks log-format mismatches
+        # between the tester's parser and pdf-dispatch's i18n strings).
 
         return {
             "status":     status,
