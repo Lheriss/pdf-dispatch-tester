@@ -31,6 +31,8 @@ from pdf_generator import (
     fixture_one_trigger_after,
     fixture_one_trigger_before,
     fixture_two_triggers,
+    fixture_blank_separator,
+    fixture_blank_duplex_separator,
     make_pdf,
     make_single_page_with_code,
     make_truncated_pdf,
@@ -750,3 +752,71 @@ class TestRetention:
         assert processed.is_dir(), "processed/ root must never be deleted"
         assert error.is_dir(), "error/ root must never be deleted"
         log.info("Retention preserved folder roots ✓")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Blank-page splitting — real pipeline via file-drop (needs BLANK_PAGE_SPLIT=on)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBlankPageSplit:
+    """End-to-end blank-page separation through the watchdog pipeline.
+
+    These require BLANK_PAGE_SPLIT enabled on the pdf-dispatch instance under
+    test. When it is off (the default) they skip, detected via the
+    blank_page_split flag reported by /api/detect. The empty (trigger list
+    cleared) config is used so only blank pages drive the splitting.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _blank_split_config(self, http, server):
+        # Clear triggers so codes don't interfere; blank pages are the only
+        # separators under test.
+        set_triggers(http, server, [])
+        set_config(http, server, separator_placement="before", delete_source=False)
+        yield
+        set_triggers(http, server, [])
+
+    def _require_blank_split(self, http, server):
+        """Skip unless the instance has blank-page splitting enabled."""
+        r = http.post(
+            f"{server}/api/detect",
+            files={"file": ("probe.pdf", make_pdf([{"kind": "blank"}]), "application/pdf")},
+        )
+        if r.status_code == 404 or "blank_page_split" not in r.json():
+            pytest.skip("blank-page feature not available in this build")
+        if not r.json().get("blank_page_split"):
+            pytest.skip("BLANK_PAGE_SPLIT is disabled on the test instance")
+
+    def test_blank_separators_split_batch(self, dropper, http, server, log):
+        """[content, BLANK, content, content, BLANK, content] → 3 documents,
+        blank sheets discarded (not present in any output)."""
+        self._require_blank_split(http, server)
+        r = dropper.drop(fixture_blank_separator(), prefix="blank_sep")
+        assert r.status == "success", f"unexpected status: {r.status}"
+        # 3 documents produced from the 2 blank separators.
+        assert r.docs_count == 3, (
+            f"expected 3 documents from 2 blank separators, got {r.docs_count}"
+        )
+        # Blank sheets are discarded: total output pages = 4 content pages
+        # (1 + 2 + 1), never 6.
+        total_pages = sum(dropper.page_count(f) for f in r.all_docs)
+        assert total_pages == 4, (
+            f"blank sheets should be discarded; expected 4 content pages, got {total_pages}"
+        )
+        log.info(f"Blank-split produced {r.docs_count} docs, {total_pages} pages ✓")
+
+    def test_duplex_blank_grouped_single_split(self, dropper, http, server, log):
+        """A duplex separator = 2 consecutive blanks between documents must
+        produce a SINGLE split: [content, BLANK, BLANK, content] → 2 docs."""
+        self._require_blank_split(http, server)
+        r = dropper.drop(fixture_blank_duplex_separator(), prefix="blank_duplex")
+        assert r.status == "success", f"unexpected status: {r.status}"
+        assert r.docs_count == 2, (
+            f"two consecutive blanks must yield a single split (2 docs), "
+            f"got {r.docs_count}"
+        )
+        total_pages = sum(dropper.page_count(f) for f in r.all_docs)
+        assert total_pages == 2, (
+            f"both blank pages discarded; expected 2 content pages, got {total_pages}"
+        )
+        log.info(f"Duplex blank grouped into a single split → {r.docs_count} docs ✓")

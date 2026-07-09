@@ -32,7 +32,7 @@ from helpers import (
     upload_pdf,
     poll_task,
 )
-from pdf_generator import make_pdf
+from pdf_generator import make_pdf, make_blank_page_pdf, make_dense_content_pdf, fixture_blank_separator
 
 pytestmark = pytest.mark.api
 
@@ -935,3 +935,71 @@ class TestApiErrorFormat:
         body = r.json()
         assert body.get("ok") is False, f"bad n must give ok=false: {body}"
         assert "error" in body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/detect — blank-page metrics (diagnostic; independent of BLANK_PAGE_SPLIT)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.api
+class TestApiDetectBlank:
+    """The detection panel must expose per-page blank metrics so the operator
+    can calibrate BLANK_PAGE_THRESHOLD. These work whether or not blank-page
+    splitting is enabled — /api/detect is purely diagnostic."""
+
+    def _detect(self, http, server, pdf_bytes):
+        r = http.post(
+            f"{server}/api/detect",
+            files={"file": ("t.pdf", pdf_bytes, "application/pdf")},
+        )
+        if r.status_code == 404:
+            pytest.skip("/api/detect not available (older pdf-dispatch)")
+        r.raise_for_status()
+        return r.json()
+
+    def test_detect_reports_blank_block(self, http, server):
+        """Each analysed page carries a `blank` object with the expected keys,
+        and top-level blank_page_split / blank_page_threshold are present."""
+        d = self._detect(http, server, make_blank_page_pdf())
+        if "blank_page_threshold" not in d:
+            pytest.skip("blank-page metrics not in this build")
+        assert "blank_page_split" in d
+        assert isinstance(d["blank_page_threshold"], (int, float))
+        page = d["pages"][0]
+        assert "blank" in page, "each page must carry a blank block"
+        for k in ("ink_ratio", "threshold_used", "is_blank", "would_split_here"):
+            assert k in page["blank"], f"missing blank.{k}"
+
+    def test_blank_page_flagged_blank(self, http, server):
+        """A deliberately empty page reports a near-zero ink_ratio and is_blank."""
+        d = self._detect(http, server, make_blank_page_pdf())
+        if "blank_page_threshold" not in d:
+            pytest.skip("blank-page metrics not in this build")
+        b = d["pages"][0]["blank"]
+        assert b["ink_ratio"] < b["threshold_used"], (
+            f"blank page ink_ratio {b['ink_ratio']} should be below "
+            f"threshold {b['threshold_used']}"
+        )
+        assert b["is_blank"] is True
+
+    def test_content_page_not_blank(self, http, server):
+        """A text-heavy page is NOT flagged blank (guards against a threshold
+        so lax it would split real content). Uses a dense page: a sparse
+        title-only page has a genuinely low ink_ratio and is a poor fixture
+        for this assertion."""
+        d = self._detect(http, server, make_dense_content_pdf())
+        if "blank_page_threshold" not in d:
+            pytest.skip("blank-page metrics not in this build")
+        b = d["pages"][0]["blank"]
+        assert b["is_blank"] is False, (
+            f"dense content page wrongly flagged blank (ink_ratio={b['ink_ratio']})"
+        )
+
+    def test_separator_pdf_blank_pages_located(self, http, server):
+        """In [content, BLANK, content, content, BLANK, content], exactly the
+        two blank sheets (pages 2 and 5, 1-based) are flagged blank."""
+        d = self._detect(http, server, fixture_blank_separator())
+        if "blank_page_threshold" not in d:
+            pytest.skip("blank-page metrics not in this build")
+        blanks = [p["page"] for p in d["pages"] if p["blank"]["is_blank"]]
+        assert blanks == [2, 5], f"expected blanks at pages 2 and 5, got {blanks}"

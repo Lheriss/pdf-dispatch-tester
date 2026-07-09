@@ -53,6 +53,10 @@ services:
       RETENTION_DAYS_PROCESSED: "90"
       RETENTION_DAYS_ERROR:     "30"
 
+      # ── Blank-page splitting (enabled so Phase 8 TestBlankPageSplit runs) ─────
+      BLANK_PAGE_SPLIT:     "true"
+      BLANK_PAGE_THRESHOLD: "0.005"
+
       # ── Security (disabled for tests — tester calls localhost webhooks) ───────
       SSRF_PROTECTION: "off"
 

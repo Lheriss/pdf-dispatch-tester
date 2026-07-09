@@ -213,6 +213,8 @@ def make_pdf(pages: list[dict[str, Any]]) -> bytes:
                     _draw_barcode_page(_c, _code128_png(spec["value"]), spec.get("label"))
                 elif kind == "multi":
                     _draw_multi_page(_c, spec["values"], spec.get("format", "qr"))
+                elif kind == "blank":
+                    pass  # deliberately empty page
                 else:
                     raise ValueError(f"Unknown page kind: {kind!r}")
                 _c.showPage(); _c.save(); _buf.seek(0)
@@ -238,6 +240,9 @@ def make_pdf(pages: list[dict[str, Any]]) -> bytes:
 
         elif kind == "multi":
             _draw_multi_page(c, spec["values"], spec.get("format", "qr"))
+
+        elif kind == "blank":
+            pass  # deliberately empty page (blank separator)
 
         else:
             raise ValueError(f"Unknown page kind: {kind!r}")
@@ -420,6 +425,81 @@ def make_code_on_last_page(value: str = "FK3", content_pages: int = 3) -> bytes:
     pages = [{"kind": "content", "text": f"Content page {i}"} for i in range(1, content_pages + 1)]
     pages.append({"kind": "qr", "value": value, "label": "Trigger on last page"})
     return make_pdf(pages)
+
+
+def _dense_content_page_bytes():
+    """One dense content page as a pypdf page object, for mixing with blanks."""
+    from pypdf import PdfReader
+    return PdfReader(BytesIO(make_dense_content_pdf(1))).pages[0]
+
+
+def _assemble_pages(specs) -> bytes:
+    """Build a PDF from a list of 'content'/'blank' markers, using DENSE
+    content pages (a sparse title-only page reads as near-blank, which would
+    make blank-separator fixtures ambiguous)."""
+    from pypdf import PdfWriter, PdfReader
+    writer = PdfWriter()
+    blank_reader = PdfReader(BytesIO(make_blank_page_pdf()))
+    for kind in specs:
+        if kind == "content":
+            writer.add_page(_dense_content_page_bytes())
+        else:
+            writer.add_page(blank_reader.pages[0])
+    out = BytesIO(); writer.write(out); out.seek(0)
+    return out.read()
+
+
+def fixture_blank_separator() -> bytes:
+    """3 documents separated by single blank pages (office-copier style):
+    [content, BLANK, content, content, BLANK, content].
+    With BLANK_PAGE_SPLIT on, produces 3 documents; the blank sheets are
+    discarded. Blank separators at pages 2 and 5 (1-based)."""
+    return _assemble_pages(
+        ["content", "blank", "content", "content", "blank", "content"])
+
+
+def fixture_blank_duplex_separator() -> bytes:
+    """A duplex-scanned separator = TWO consecutive blank pages between
+    documents: [content, BLANK, BLANK, content]. Consecutive blanks must be
+    grouped into a SINGLE split, so this yields 2 documents, not 3."""
+    return _assemble_pages(["content", "blank", "blank", "content"])
+
+
+def fixture_blank_first_page() -> bytes:
+    """A blank page as the very first page: [BLANK, content, content].
+    The leading blank splits, producing an empty first segment (discarded)
+    then one document."""
+    return _assemble_pages(["blank", "content", "content"])
+
+
+def make_blank_page_pdf() -> bytes:
+    """Single deliberately-blank page — used to check ink_ratio via /api/detect."""
+    return make_pdf([{"kind": "blank"}])
+
+
+def make_dense_content_pdf(pages: int = 1) -> bytes:
+    """PDF whose pages are covered in text, like a real document page (not a
+    sparse title-only page). Used to verify that real content is NOT flagged
+    blank — a single centred title has a very low ink_ratio and would be a
+    misleading 'content' fixture for that assertion."""
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.pagesizes import A4 as _A4
+    buf = BytesIO()
+    c = _canvas.Canvas(buf, pagesize=_A4)
+    w, h = _A4
+    line = ("The quick brown fox jumps over the lazy dog. "
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ")
+    for _ in range(pages):
+        c.setFont("Helvetica", 11)
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        y = h - 60
+        while y > 60:
+            c.drawString(50, y, line)
+            y -= 16
+        c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
 
 
 def make_unknown_trigger(value: str = "UNKNOWN_CODE_XYZ") -> bytes:
