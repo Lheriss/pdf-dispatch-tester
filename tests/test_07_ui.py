@@ -798,7 +798,14 @@ class TestUiDirs:
         """#dir-data-root affiche un chemin (pas vide ni tiret)."""
         _open_settings_section(ui_page)
         _open_dirs_section(ui_page)
-        wait_for_refresh(ui_page)
+        # Same race as test_dirs_table_has_rows: wait for renderDirs() to have
+        # actually filled #dir-data-root rather than just for the network
+        # response to have arrived.
+        ui_page.wait_for_function(
+            "() => { const e = document.getElementById('dir-data-root');"
+            " return e && e.textContent.includes('/'); }",
+            timeout=8_000,
+        )
         root_text = ui_page.locator("#dir-data-root").inner_text().strip()
         assert root_text and root_text not in ("-", chr(8211), ""), (
             f"#dir-data-root must show a path, got {root_text!r}"
@@ -809,7 +816,14 @@ class TestUiDirs:
         """#dirs-tbody contient au moins 3 lignes (input, output, error)."""
         _open_settings_section(ui_page)
         _open_dirs_section(ui_page)
-        wait_for_refresh(ui_page)
+        # renderDirs() only repopulates #dirs-tbody when a /api/state response
+        # is handled while the panel is open, so waiting for the response to
+        # arrive (wait_for_refresh) is not enough — the JS handler may not have
+        # run yet. Wait for the rows to actually appear in the DOM.
+        ui_page.wait_for_function(
+            "() => document.querySelectorAll('#dirs-tbody tr').length >= 3",
+            timeout=8_000,
+        )
         rows = ui_page.locator("#dirs-tbody tr")
         assert rows.count() >= 3, (
             f"Expected >= 3 rows in dirs table, got {rows.count()}"
