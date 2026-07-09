@@ -610,3 +610,143 @@ class TestConfigPersistence:
             f"Empty trigger list must be persisted as []: got {values!r}"
         )
         log.info("Liste vide persistée ✓")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retention — automatic cleanup of old processed/error files
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRetention:
+    """Integration tests for automatic retention (RETENTION_DAYS_*).
+
+    Files are written directly into /data/output/processed/ and
+    /data/output/error/ via the shared volume, given old or recent mtimes,
+    then cleanup is triggered deterministically via POST /api/retention/run
+    (instead of waiting for the multi-hour scan interval). The result is
+    verified straight from the filesystem.
+
+    Retention is opt-in and driven by env vars on the pdf-dispatch instance;
+    when it is disabled these tests skip rather than fail, and always clean
+    up the files they create.
+    """
+
+    ENDPOINT = "/api/retention/run"
+
+    def _run(self, http, server):
+        """Trigger one retention cycle; skip the test if the endpoint or the
+        feature is not available on the instance under test."""
+        r = http.post(f"{server}{self.ENDPOINT}")
+        if r.status_code == 404:
+            pytest.skip("retention endpoint not available (older pdf-dispatch)")
+        r.raise_for_status()
+        return r.json().get("summary", {})
+
+    @staticmethod
+    def _set_mtime(path: Path, age_days: float) -> None:
+        ts = time.time() - age_days * 86400
+        import os
+        os.utime(path, (ts, ts))
+
+    @pytest.fixture
+    def _retention_cleanup(self, data_path, log):
+        """Remove any files this test class creates, even on failure."""
+        created: list[Path] = []
+        yield created
+        for p in created:
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError as e:
+                log.warning(f"retention test cleanup: {p}: {e}")
+
+    def test_old_files_removed_recent_kept(self, http, server, data_path,
+                                           _retention_cleanup, log):
+        """Files older than the threshold are deleted; recent ones survive.
+
+        Uses a very old mtime (400d) so the file is deleted for any realistic
+        RETENTION_DAYS_* > 0, and a fresh mtime (0d) so the recent file
+        survives any threshold. If retention is disabled the run reports the
+        folder as absent from the summary and the test skips.
+        """
+        processed = Path(data_path) / "output" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+
+        tag = f"ret_{int(time.time())}"
+        old = processed / f"{tag}_old.pdf"
+        new = processed / f"{tag}_recent.pdf"
+        old.write_bytes(b"%PDF-1.4\n% old\n")
+        new.write_bytes(b"%PDF-1.4\n% recent\n")
+        _retention_cleanup.extend([old, new])
+        self._set_mtime(old, 400)
+        self._set_mtime(new, 0)
+
+        summary = self._run(http, server)
+        if "processed" not in summary:
+            pytest.skip("RETENTION_DAYS_PROCESSED is 0 (retention disabled)")
+
+        assert not old.exists(), (
+            "File older than the retention threshold should have been deleted"
+        )
+        assert new.exists(), "Recent file must be kept"
+        log.info(f"Retention removed old processed file, kept recent ✓ "
+                 f"(summary={summary['processed']})")
+
+    def test_error_folder_retention(self, http, server, data_path,
+                                    _retention_cleanup, log):
+        """The error folder is cleaned independently of processed."""
+        error = Path(data_path) / "output" / "error"
+        error.mkdir(parents=True, exist_ok=True)
+
+        tag = f"ret_{int(time.time())}"
+        old = error / f"{tag}_old.pdf"
+        old.write_bytes(b"%PDF-1.4\n% old error\n")
+        _retention_cleanup.append(old)
+        self._set_mtime(old, 400)
+
+        summary = self._run(http, server)
+        if "error" not in summary:
+            pytest.skip("RETENTION_DAYS_ERROR is 0 (retention disabled)")
+
+        assert not old.exists(), (
+            "Old file in error/ should have been deleted by retention"
+        )
+        log.info(f"Retention cleaned error folder ✓ (summary={summary['error']})")
+
+    def test_run_endpoint_returns_summary(self, http, server, data_path, log):
+        """The manual-run endpoint always returns ok + a summary object,
+        even when nothing is deleted (idempotent, safe to call)."""
+        r = http.post(f"{server}{self.ENDPOINT}")
+        if r.status_code == 404:
+            pytest.skip("retention endpoint not available (older pdf-dispatch)")
+        r.raise_for_status()
+        d = r.json()
+        assert d.get("ok") is True
+        assert isinstance(d.get("summary"), dict), "summary must be an object"
+        # Each present folder entry has the expected shape.
+        for folder, info in d["summary"].items():
+            assert folder in ("processed", "error")
+            assert set(info) >= {"deleted", "bytes", "days"}
+            assert info["deleted"] >= 0 and info["days"] > 0
+        log.info(f"Retention endpoint summary well-formed ✓ ({d['summary']})")
+
+    def test_root_folder_never_deleted(self, http, server, data_path,
+                                       _retention_cleanup, log):
+        """Retention deletes contents but never the folder roots themselves."""
+        processed = Path(data_path) / "output" / "processed"
+        error = Path(data_path) / "output" / "error"
+        processed.mkdir(parents=True, exist_ok=True)
+        error.mkdir(parents=True, exist_ok=True)
+
+        # An old file in each so a deletion actually happens.
+        tag = f"ret_{int(time.time())}"
+        for root in (processed, error):
+            f = root / f"{tag}_old.pdf"
+            f.write_bytes(b"%PDF-1.4\n% old\n")
+            _retention_cleanup.append(f)
+            self._set_mtime(f, 400)
+
+        self._run(http, server)
+
+        assert processed.is_dir(), "processed/ root must never be deleted"
+        assert error.is_dir(), "error/ root must never be deleted"
+        log.info("Retention preserved folder roots ✓")

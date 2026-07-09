@@ -46,6 +46,13 @@ services:
       # ── Timeouts ─────────────────────────────────────────────────────────────
       API_TASK_TIMEOUT: "120"
 
+      # ── Retention (enabled so Phase 8 TestRetention actually runs) ────────────
+      # Large thresholds: real test files are 0-day (recent) and are removed
+      # explicitly by the test via 400-day mtimes + POST /api/retention/run,
+      # so no genuine output is ever deleted during a normal test run.
+      RETENTION_DAYS_PROCESSED: "90"
+      RETENTION_DAYS_ERROR:     "30"
+
       # ── Security (disabled for tests — tester calls localhost webhooks) ───────
       SSRF_PROTECTION: "off"
 
