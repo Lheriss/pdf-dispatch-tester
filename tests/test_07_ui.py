@@ -107,6 +107,79 @@ class TestUiSmoke:
         status_text = ui_page.locator("#stext").inner_text().strip()
         assert status_text != "", "#stext est vide — refresh() n'a peut-être pas abouti"
 
+    def test_no_console_errors_when_opening_panels(self, ui_page):
+        """No JS error when opening panels and when rendering the directories
+        table with real data.
+
+        Two complementary checks:
+
+        1. Open every collapsible panel via its real toggle click and assert
+           no uncaught exception / console.error fired (covers render paths
+           that run on open).
+        2. Deterministically exercise renderDirs() with the live dirs_status
+           and capture any exception it throws. This is the reliable guard
+           for the DIR_LABELS regression (pdf-dispatch 9d25728): a `const`
+           eaten by a line comment made renderDirs() throw
+           "ReferenceError: DIR_LABELS is not defined" as soon as it had rows
+           to render — invisible at page load, and timing-dependent to
+           reproduce via clicks alone, so we trigger it directly here.
+        """
+        _open_settings_section(ui_page)
+        _open_options_section(ui_page)
+        ui_page.wait_for_function(
+            "() => typeof cfg !== 'undefined' && cfg && cfg.loaded")
+
+        # (1) Open each panel by its real toggle; any on-open render error
+        # surfaces as an uncaught pageerror.
+        for btn_id in ("dirs-panel-btn", "email-panel-btn",
+                       "webhook-panel-btn", "apikey-panel-btn"):
+            btn = ui_page.locator(f"#{btn_id}")
+            if btn.count() > 0:
+                btn.click()
+                ui_page.wait_for_timeout(150)
+
+        # (2) Deterministically render the directories table with the real
+        # dirs_status from /api/state and report any thrown error. Returns
+        # the error string (or "") so a throwing renderDirs fails the test
+        # regardless of open-time timing.
+        render_error = ui_page.evaluate(
+            """async () => {
+                try {
+                    const r = await fetch('/api/state',
+                        {headers: {'Accept': 'application/json'}});
+                    const d = await r.json();
+                    const ds = (d.config && d.config.dirs_status) || {};
+                    if (typeof renderDirs !== 'function')
+                        return 'renderDirs is not a function';
+                    renderDirs(ds, (d.config && d.config.data_dir) || '/data');
+                    return '';
+                } catch (e) {
+                    return String(e);
+                }
+            }"""
+        )
+        assert render_error == "", (
+            f"renderDirs() threw with real data: {render_error}"
+        )
+
+        # Uncaught JS exceptions are always failures; for console.error we
+        # ignore pure network noise (failed resource loads, HTTP status
+        # lines) which are not code bugs.
+        def _is_code_error(msg: str) -> bool:
+            low = msg.lower()
+            network_noise = (
+                "failed to load resource", "net::err",
+                "status of 4", "status of 5", "favicon",
+            )
+            return not any(n in low for n in network_noise)
+
+        console_errs = [m for m in getattr(ui_page, "_console_errors", [])
+                        if _is_code_error(m)]
+        errors = list(ui_page._js_errors) + console_errs
+        assert errors == [], (
+            "JS errors while opening panels:\n" + "\n".join(errors)
+        )
+
 
 
 

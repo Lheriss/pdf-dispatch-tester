@@ -737,6 +737,13 @@ def ui_page(_pw_browser, server, api_key):
     page.on("pageerror", lambda err: _js_errors.append(str(err)))
     page._js_errors = _js_errors  # type: ignore[attr-defined]
 
+    # Also capture console.error() output, not only uncaught exceptions:
+    # some runtime failures are logged rather than thrown.
+    _console_errors: list[str] = []
+    page.on("console", lambda msg: (
+        _console_errors.append(msg.text) if msg.type == "error" else None))
+    page._console_errors = _console_errors  # type: ignore[attr-defined]
+
     page.goto("/", wait_until="domcontentloaded")
     page.locator("#st-proc").wait_for(state="visible")
     page.wait_for_function(
