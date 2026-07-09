@@ -767,12 +767,34 @@ class TestUiWebhook:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _open_dirs_section(page) -> None:
-    """Ouvre #dirs-panel (dans #options-body)."""
+    """Ouvre #dirs-panel (dans #options-body) et garantit que la table est
+    rendue.
+
+    toggleDirsPanel() n'appelle renderDirs() à l'ouverture que si
+    cfg.app_config est déjà peuplé (premier /api/state reçu). Selon le
+    timing, le panneau peut donc s'ouvrir sur une table vide et aucun
+    refresh ultérieur ne la re-remplit de façon déterministe. On attend donc
+    que la donnée soit disponible côté client AVANT d'ouvrir, puis on force
+    un rendu via renderDirs() pour ne pas dépendre du hasard du timing.
+    """
     _open_options_section(page)
     panel = page.locator("#dirs-panel")
     if not panel.is_visible():
         page.locator("#dirs-panel-btn").click()
         panel.wait_for(state="visible")
+    # Attendre que cfg.app_config.dirs_status soit peuplé (donnée /api/state
+    # arrivée et stockée côté client), puis déclencher explicitement le rendu.
+    page.wait_for_function(
+        "() => typeof cfg !== 'undefined' && cfg.app_config"
+        " && cfg.app_config.dirs_status"
+        " && Object.keys(cfg.app_config.dirs_status).length > 0",
+        timeout=10_000,
+    )
+    page.evaluate(
+        "() => { if (typeof renderDirs === 'function' && cfg.app_config)"
+        " renderDirs(cfg.app_config.dirs_status || {},"
+        " cfg.app_config.data_dir || '/data'); }"
+    )
 
 
 def _open_apikey_section(page) -> None:
@@ -815,11 +837,9 @@ class TestUiDirs:
     def test_dirs_table_has_rows(self, ui_page):
         """#dirs-tbody contient au moins 3 lignes (input, output, error)."""
         _open_settings_section(ui_page)
+        # _open_dirs_section waits for cfg.app_config.dirs_status and forces a
+        # renderDirs() call, so the table is guaranteed populated here.
         _open_dirs_section(ui_page)
-        # renderDirs() only repopulates #dirs-tbody when a /api/state response
-        # is handled while the panel is open, so waiting for the response to
-        # arrive (wait_for_refresh) is not enough — the JS handler may not have
-        # run yet. Wait for the rows to actually appear in the DOM.
         ui_page.wait_for_function(
             "() => document.querySelectorAll('#dirs-tbody tr').length >= 3",
             timeout=8_000,
