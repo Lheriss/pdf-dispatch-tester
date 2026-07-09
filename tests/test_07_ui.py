@@ -162,16 +162,24 @@ class TestUiSmoke:
             f"renderDirs() threw with real data: {render_error}"
         )
 
-        # Uncaught JS exceptions are always failures; for console.error we
-        # ignore pure network noise (failed resource loads, HTTP status
-        # lines) which are not code bugs.
+        # Uncaught JS exceptions (pageerror) are always real code failures.
+        # console.error output, however, is dominated by environment noise:
+        # blocked/failed resource loads, HTTP status lines, and CORS errors
+        # on third-party resources (e.g. Google Fonts — the harness injects
+        # X-API-Key on every request, turning cross-origin font fetches into
+        # rejected CORS preflights). Rather than enumerate every possible
+        # noise string, keep only console.error lines that name an actual JS
+        # exception type; that is what a broken render function emits.
+        js_error_signatures = (
+            "referenceerror", "typeerror", "syntaxerror", "rangeerror",
+            "urierror", "evalerror", "is not defined", "is not a function",
+            "cannot read propert", "cannot set propert",
+            "undefined is not", "null is not",
+        )
+
         def _is_code_error(msg: str) -> bool:
             low = msg.lower()
-            network_noise = (
-                "failed to load resource", "net::err",
-                "status of 4", "status of 5", "favicon",
-            )
-            return not any(n in low for n in network_noise)
+            return any(sig in low for sig in js_error_signatures)
 
         console_errs = [m for m in getattr(ui_page, "_console_errors", [])
                         if _is_code_error(m)]
