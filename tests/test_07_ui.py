@@ -180,6 +180,77 @@ class TestUiSmoke:
             "JS errors while opening panels:\n" + "\n".join(errors)
         )
 
+    def test_content_render_functions_do_not_throw(self, ui_page):
+        """Second-level render functions (triggers, filename tokens, email
+        configs) must not throw when rendering real content.
+
+        These run when the user interacts with already-loaded content — click
+        a trigger to edit it, expand a filename-token, open an email config —
+        not when a top-level panel opens, so the panel-opening test does not
+        reach them. Each uses module-level label maps (e.g. TOKEN_LABELS, the
+        exact sibling of the DIR_LABELS bug), so a `const` eaten by a comment
+        would break them the same silent way.
+
+        Data is injected into cfg so the render loops actually execute (an
+        empty list would skip the label lookups and hide the bug, exactly as
+        it did for DIR_LABELS with an empty dirs_status).
+        """
+        _open_settings_section(ui_page)
+        ui_page.wait_for_function(
+            "() => typeof cfg !== 'undefined' && cfg && cfg.loaded")
+
+        # Inject representative non-empty content and call each render
+        # function, capturing any exception. Restores cfg afterwards so the
+        # rest of the page state is untouched.
+        result = ui_page.evaluate(
+            """() => {
+                const failures = [];
+                const call = (name, fn) => {
+                    try { fn(); } catch (e) { failures.push(name + ': ' + e); }
+                };
+                const saved = {
+                    sv: cfg.split_values,
+                    ft: cfg.filename_tokens,
+                    ec: cfg.email_configs,
+                };
+                try {
+                    cfg.split_values = [
+                        {value: 'FK3', page_handling: 'keep',
+                         case_sensitive: true},
+                        {value: 'INV*', page_handling: 'delete',
+                         case_sensitive: false},
+                    ];
+                    cfg.filename_tokens = [
+                        {type: 'trigger'}, {type: 'string', value: '-'},
+                        {type: 'timestamp', format: 'YYYYMMDD'},
+                        {type: 'counter', digits: 4},
+                    ];
+                    cfg.email_configs = [
+                        {id: 'c1', name: 'Inbox', enabled: true,
+                         host: 'imap.example.com', trigger: 'FK3'},
+                    ];
+                    if (typeof renderTriggers === 'function')
+                        call('renderTriggers', () => renderTriggers());
+                    if (typeof renderTokens === 'function')
+                        call('renderTokens', () => renderTokens());
+                    if (typeof renderEmailConfigs === 'function')
+                        call('renderEmailConfigs', () => renderEmailConfigs());
+                    if (typeof renderEmailTriggerSelect === 'function')
+                        call('renderEmailTriggerSelect',
+                             () => renderEmailTriggerSelect('FK3'));
+                } finally {
+                    cfg.split_values   = saved.sv;
+                    cfg.filename_tokens = saved.ft;
+                    cfg.email_configs  = saved.ec;
+                }
+                return failures;
+            }"""
+        )
+        assert result == [], (
+            "Content render functions threw with real data:\n"
+            + "\n".join(result)
+        )
+
 
 
 
