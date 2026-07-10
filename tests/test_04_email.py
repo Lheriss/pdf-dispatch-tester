@@ -731,7 +731,13 @@ class TestEmailFilesystemIntegration:
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # This PDF produces TWO documents: the pre-trigger page 1 has no code
+        # (→ no_code/) and pages 2–4 carry FK3 (→ FK3/). They are written
+        # sequentially, so we must wait for BOTH; with the default min_count=1
+        # the poll can return between the two writes, having seen only the
+        # no_code file, leaving output_files empty (a flaky race).
+        result = _poll_result(http, server, data_dir, before, timeout=90.0,
+                              min_count=2)
         assert result.status != "timeout", "Email PDF with trigger must be processed"
         assert len(result.output_files) >= 1, (
             f"Expected output file in FK3/ subdir, got: {result}"
