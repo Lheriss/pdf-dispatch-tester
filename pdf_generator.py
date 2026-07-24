@@ -39,8 +39,8 @@ from PIL import Image
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 
-# ── Optional base PDF (content pages provided by the user) ───────────────────
-_BASE_PDF_BYTES: bytes | None = None
+# ── Optional base PDF (content pages provided by the user) ─────────────────────
+BASE_PDF_BYTES: bytes | None = None
 
 
 def set_base_pdf(data: bytes | None) -> None:
@@ -58,9 +58,9 @@ from reportlab.pdfgen import canvas
 PAGE_W, PAGE_H = A4
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # Internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 def _qr_png(value: str) -> bytes:
     """Render a QR code to PNG bytes."""
@@ -159,9 +159,9 @@ def _draw_multi_page(c: canvas.Canvas, values: list[str], fmt: str) -> None:
         c.drawCentredString(col * cell_w + cell_w / 2, y - 14, value)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # Public API
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 def make_pdf(pages: list[dict[str, Any]]) -> bytes:
     """
@@ -267,9 +267,9 @@ def make_non_pdf() -> bytes:
     return buf.getvalue()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # Pre-built fixtures used across all test phases
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 def fixture_one_trigger_before(trigger: str = "FK3") -> bytes:
     """4-page PDF: content | trigger | content | content  (before+keep scenario)."""
@@ -331,7 +331,7 @@ def fixture_case_sensitivity(trigger: str = "invoice") -> bytes:
 
 
 def fixture_multi_trigger_same_page(triggers: list[str] | None = None) -> bytes:
-    """PDF with two codes on the same page."""
+    """PDF with two DISTINCT codes on the same page (multi-trigger scenario)."""
     if triggers is None:
         triggers = ["INVOICE", "COPY"]
     return make_pdf([
@@ -341,9 +341,24 @@ def fixture_multi_trigger_same_page(triggers: list[str] | None = None) -> bytes:
     ])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+def fixture_duplicate_code_same_page(trigger: str = "FK3") -> bytes:
+    """PDF with the SAME code printed twice on one page.
+
+    Regression fixture for the per-page value deduplication in pdf-dispatch
+    (find_split_pages): identical duplicate occurrences of one code must
+    yield a single output document, unlike two distinct codes which yield
+    one document each (see fixture_multi_trigger_same_page).
+    """
+    return make_pdf([
+        {"kind": "content", "text": "Document before"},
+        {"kind": "multi",   "values": [trigger, trigger], "format": "qr"},
+        {"kind": "content", "text": "Document after"},
+    ])
+
+
+# ───────────────────────────────────────────────────────────────────────────────
 # Adversarial fixtures (Phase 1d / 1e)
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 def make_truncated_pdf() -> bytes:
     """Valid PDF start then abruptly truncated — should go to error/."""

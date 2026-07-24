@@ -31,6 +31,7 @@ from file_dropper import FileDropper
 from helpers import set_config, set_triggers
 from pdf_generator import (
     fixture_case_sensitivity,
+    fixture_duplicate_code_same_page,
     make_pdf,
     fixture_glob,
     fixture_multi_trigger_same_page,
@@ -54,9 +55,9 @@ pytestmark = pytest.mark.processing
 TRIGGER = "FK3"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # Fixtures
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
 def dropper(cfg, http, server, log):
@@ -94,11 +95,11 @@ def _cleanup(dropper, request):
             dropper.cleanup_output(r)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # 1a — Placement × page_handling
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # PDF: p1=content | p2=QR FK3 | p3=content | p4=content
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 class TestBeforeKeep:
     """Separator placed BEFORE document, KEPT as its first page."""
@@ -273,9 +274,9 @@ class TestAfterDelete:
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # 1b — Trigger matching
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 class TestTriggerMatching:
 
@@ -334,9 +335,9 @@ class TestTriggerMatching:
         assert r.docs_count == 2
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # 1c — Multi-trigger sequences
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 class TestMultiTrigger:
 
@@ -373,10 +374,32 @@ class TestMultiTrigger:
         _cleanup.append(r)
         assert r.docs_count >= 2
 
+    def test_duplicate_code_on_same_page(self, dropper, http, server, _cleanup, log):
+        """The same code printed twice on one page must produce ONE document.
 
-# ─────────────────────────────────────────────────────────────────────────────
+        Regression test for the per-page value deduplication in
+        find_split_pages (pdf-dispatch): before the fix, the duplicate
+        occurrence produced a parasitic one-page document (the separator
+        page alone) in addition to the real document, and consumed two
+        filename counters.
+        """
+        set_triggers(http, server, [
+            {"value": TRIGGER, "page_handling": "keep"},
+        ])
+        r = dropper.drop(fixture_duplicate_code_same_page(TRIGGER),
+                         prefix="dup_code_same_page")
+        _cleanup.append(r)
+        # Expected: content before → no_code (1 doc);
+        # separator page + content after → one single TRIGGER doc (2 pages).
+        assert len(r.output_files) == 1
+        assert len(r.no_code_files) == 1
+        assert r.docs_count == 2
+        assert r.all_page_counts() == [1, 2]
+
+
+# ───────────────────────────────────────────────────────────────────────────────
 # 1d — Adversarial files
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 class TestAdversarial:
 
@@ -464,9 +487,9 @@ class TestAdversarial:
         log.info(f"Rotated (45°): status={r.status}, docs={r.docs_count}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 # 1e — Edge cases
-# ─────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
 
 class TestEdgeCases:
 
@@ -501,3 +524,31 @@ class TestEdgeCases:
         assert r.docs_count == 1
         assert r.page_count_of(0) == 3
 
+    def test_trigger_pdf_page_counts_via_filesystem(self, dropper, http, server,
+                                                     _cleanup, log):
+        """Full-stack: basic split verified on the actual output files.
+
+        Sends [content, FK3, content, content]. Expects:
+          - 1 file in no_code/ (the pre-trigger page)
+          - 1 file in FK3/    (FK3 page + 2 content pages)
+        """
+        set_config(http, server, separator_placement="before", subdirs_by_trigger=True)
+        set_triggers(http, server, [{"value": TRIGGER, "page_handling": "keep"}])
+        r = dropper.drop(
+            fixture_one_trigger_before(TRIGGER), prefix="fs_page_counts",
+            min_count=2,   # wait for both output files before classifying
+        )
+        _cleanup.append(r)
+        assert r.status == "success"
+        assert len(r.no_code_files) == 1, (
+            f"Pre-trigger page must go to no_code/, got {r.no_code_files}"
+        )
+        expected_output_file = r.trigger_file(TRIGGER)
+        assert expected_output_file is not None, (
+            f"Expected output file in {TRIGGER}/ subdir, got output_files={r.output_files}"
+        )
+        from pypdf import PdfReader
+        nc_pages = PdfReader(str(r.no_code_files[0])).pages
+        tr_pages = PdfReader(str(expected_output_file)).pages
+        assert len(nc_pages) == 1, f"no_code doc: expected 1 page, got {len(nc_pages)}"
+        assert len(tr_pages) == 3, f"{TRIGGER} doc: expected 3 pages, got {len(tr_pages)}"
