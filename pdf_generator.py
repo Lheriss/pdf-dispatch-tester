@@ -40,7 +40,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 
 # ── Optional base PDF (content pages provided by the user) ─────────────────────
-BASE_PDF_BYTES: bytes | None = None
+_BASE_PDF_BYTES: bytes | None = None
 
 
 def set_base_pdf(data: bytes | None) -> None:
