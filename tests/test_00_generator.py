@@ -16,6 +16,7 @@ import pytest
 from pdf_generator import (
     fixture_case_sensitivity,
     fixture_glob,
+    fixture_duplicate_code_same_page,
     fixture_multi_trigger_same_page,
     fixture_no_code,
     fixture_one_trigger_after,
@@ -149,6 +150,13 @@ def test_fixture_case_sensitivity():
 def test_fixture_multi_trigger_same_page():
     pdf = fixture_multi_trigger_same_page(["INVOICE", "COPY"])
     assert pdf[:4] == b"%PDF"
+
+
+def test_fixture_duplicate_code_same_page():
+    """Same code printed twice on one page — must produce a valid 3-page PDF."""
+    pdf = fixture_duplicate_code_same_page("FK3")
+    assert pdf[:4] == b"%PDF"
+    assert _page_count(pdf) in (3, -1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
