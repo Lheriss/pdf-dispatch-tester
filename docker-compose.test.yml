@@ -12,6 +12,18 @@ services:
     container_name: pdf-dispatch-test
     restart: unless-stopped
 
+    # pdf-dispatch's own email poller (phase4-greenmail config) starts dialing
+    # IMAP as soon as the app boots — it doesn't wait for docker-compose
+    # ordering on its own. Without this, pdf-dispatch could start before
+    # GreenMail has opened its ports and fail its first poll with
+    # "[Errno 111] Connection refused" (a plain TCP-level refusal, distinct
+    # from the "Invalid login/password" auth race fixed on the greenmail
+    # service below — this is pdf-dispatch racing GreenMail's startup, not
+    # the tester racing it).
+    depends_on:
+      greenmail:
+        condition: service_healthy
+
     environment:
       DATA_DIR: /data
       PUID:     "1026"
