@@ -81,7 +81,7 @@ services:
       pdf-dispatch-test:
         condition: service_healthy
       greenmail:
-        condition: service_started
+        condition: service_healthy
 
     environment:
       # Réseau partagé → localhost:5000 = pdf-dispatch
@@ -127,5 +127,32 @@ services:
       # No Phase 4 test asserts that a wrong IMAP password is rejected, so this is safe.
       # -Dgreenmail.users= is kept so the pdftester@greenmail mailbox exists up front.
       #   → IMAP login pdftester / any password  ·  SMTP To: pdftester@greenmail
-      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.auth.disabled -Dgreenmail.verbose=false"
+      #
+      # ⚠ SECOND FAILURE MODE (same symptom, different cause): if GreenMail's
+      # startup health check times out (default 2000 ms) because a server — in
+      # practice smtps:3465 — is slow to bind on a loaded host, GreenMail.start()
+      # throws in the main thread BEFORE the flags above are applied. auth then
+      # silently reverts to enabled and pdftester is never seeded, so every IMAP
+      # login fails with the exact same "Invalid login/password" message even
+      # though this config is correct. Guarded by -Dgreenmail.startup.timeout
+      # below AND the healthcheck (tester waits for service_healthy).
+      # -Dgreenmail.startup.timeout=15000 — the per-server startup health check
+      # defaults to 2000 ms. On a loaded host the smtps server (:3465) can take
+      # longer to bind, and GreenMail.start() then throws in the main thread
+      # BEFORE the setup flags (users, auth.disabled) are applied — which
+      # silently reintroduces the "Invalid login/password" failure even though
+      # the config is correct. A generous timeout makes startup robust.
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.auth.disabled -Dgreenmail.startup.timeout=15000 -Dgreenmail.verbose=false"
+    # Healthcheck: don't report healthy until BOTH the IMAP (3143) and SMTP
+    # (3025) ports actually accept a connection. The base image is Azul Zulu
+    # OpenJDK (Debian-based) with bash but without nc/curl, so probe the ports
+    # via bash's /dev/tcp — no extra tooling needed. This closes the race where
+    # the tester started as soon as the container was "up", even if GreenMail
+    # had not finished binding its servers (or had aborted startup).
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/3143 && </dev/tcp/localhost/3025' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
