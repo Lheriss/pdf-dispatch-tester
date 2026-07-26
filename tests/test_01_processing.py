@@ -536,7 +536,12 @@ class TestEdgeCases:
         set_triggers(http, server, [{"value": TRIGGER, "page_handling": "keep"}])
         r = dropper.drop(
             fixture_one_trigger_before(TRIGGER), prefix="fs_page_counts",
-            min_count=2,   # wait for both output files before classifying
+            # Note: unlike the email poller (which processes attachments across
+            # separate cycles, hence min_count there), FileDropper.drop() waits
+            # for the dropped file to vanish from input/ — the last step of a
+            # single-pass, atomic processing run — so both output files (no_code
+            # + FK3) already exist by the time this call returns. No min_count
+            # parameter here; drop() doesn't take one.
         )
         _cleanup.append(r)
         assert r.status == "success"
