@@ -548,7 +548,9 @@ class TestEdgeCases:
         assert len(r.no_code_files) == 1, (
             f"Pre-trigger page must go to no_code/, got {r.no_code_files}"
         )
-        expected_output_file = r.trigger_file(TRIGGER)
+        expected_output_file = next(
+            (f for f in r.output_files if f.parent.name == TRIGGER), None
+        )
         assert expected_output_file is not None, (
             f"Expected output file in {TRIGGER}/ subdir, got output_files={r.output_files}"
         )
