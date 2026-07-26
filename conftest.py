@@ -759,12 +759,22 @@ def ui_page(_pw_browser, server, api_key):
 # Usage in test files:
 #   from conftest import wait_for_refresh, reload_and_wait
 
-def wait_for_refresh(page, *, timeout: int = 8_000) -> None:
+def wait_for_refresh(page, *, timeout: int = 20_000) -> None:
     """
     Block until the next successful GET /api/state response arrives.
 
     Call this after any UI action that modifies server state so that
     refresh() has had a chance to pull the updated state before assertions.
+
+    Timeout headroom: refresh() polls every 3s (setInterval in app.js), so
+    8s (< 3 ticks) left almost no margin — confirmed flaky in the full,
+    hours-long test session (test_07_ui::TestUiSeparator saw ~15-17s gaps
+    between polls under load, likely CPU/IO contention from the many
+    services sharing the test host, not a client or server bug: isolated
+    reproduction against a fresh instance showed a rock-solid exact 3.0s
+    cadence with zero JS errors). 20s tolerates several missed ticks
+    without slowing the happy path — expect_response still returns the
+    moment a qualifying response arrives.
 
     Example::
 
