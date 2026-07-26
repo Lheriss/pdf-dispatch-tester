@@ -84,6 +84,12 @@ services:
 
   pdf-dispatch-tester:
     image: ghcr.io/lheriss/pdf-dispatch-tester:latest
+    # :latest is a mutable tag republished on every push to main — same as
+    # pdf-dispatch-test above. Without pull_policy: always, Docker can keep
+    # reusing a cached copy of this image even after a newer :latest exists on
+    # the registry, silently re-running stale test code. Mirror this with
+    # Portainer's "re-pull image" option when updating the stack.
+    pull_policy: always
     # Pas de container_name : incompatible avec network_mode: service:
     restart: unless-stopped
     network_mode: "service:pdf-dispatch-test"
