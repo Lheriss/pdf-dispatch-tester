@@ -76,7 +76,7 @@ GROUPS = [
     {
         "id": "phase2",
         "label": "Phase 2 — API REST",
-        "desc": "Upload, tâches, configuration via API · 55 tests",
+        "desc": "Upload, tâches, configuration, sécurité via API · 81 tests",
         "args": [],
         "available": True,
     },
@@ -229,14 +229,14 @@ GROUPS = [
     {
         "id": "phase5",
         "label": "Phase 5 — Sécurité",
-        "desc": "Injection config, exposition de secrets · 20 tests",
+        "desc": "Injection config, secrets, accès anonyme, connexion web · 57 tests",
         "args": [],
         "available": True,
     },
     {
         "id": "phase5_config_poison",
         "label": "↳ Injection config (POST /api/config)",
-        "desc": "email_configs, stats, counter, dirs · 12 tests",
+        "desc": "email_configs, stats, counter, dirs · 13 tests",
         "args": ["tests/test_05_security.py::TestConfigPoisoning"],
         "available": True, "sub": True, "parent": "phase5",
     },
@@ -247,11 +247,33 @@ GROUPS = [
         "args": ["tests/test_05_security.py::TestPasswordEncExposure"],
         "available": True, "sub": True, "parent": "phase5",
     },
+    {
+        "id": "phase5_auth_bypass",
+        "label": "↳ Accès anonyme & clé générée",
+        "desc": "Sans clé / mauvaise clé → 401, clé générée au démarrage · 12 tests",
+        "args": ["tests/test_05_security.py::TestAuthBypass",
+                 "tests/test_05_security.py::TestApiKeyBootstrap"],
+        "available": True, "sub": True, "parent": "phase5",
+    },
+    {
+        "id": "phase5_signin",
+        "label": "↳ Connexion web (HTTP)",
+        "desc": "Redirection /login, cookie, CSRF, déconnexion, Basic, open redirect · 19 tests",
+        "args": ["tests/test_05_security.py::TestWebSignIn"],
+        "available": True, "sub": True, "parent": "phase5",
+    },
+    {
+        "id": "phase5_protected",
+        "label": "↳ Réglages protégés",
+        "desc": "api_key / compte / secret non modifiables via /api/config · 7 tests",
+        "args": ["tests/test_05_security.py::TestProtectedSettings"],
+        "available": True, "sub": True, "parent": "phase5",
+    },
     # ─── Phase 6 ─── Validation des entrées ───────────────────────────────
     {
         "id": "phase6",
         "label": "Phase 6 — Validation des entrées",
-        "desc": "CRLF IMAP, bornes port/interval, barcode→fichier, log injection, n invalide · 37 tests",
+        "desc": "CRLF IMAP, bornes port/interval, barcode→fichier, log injection, n invalide, extension upload · 34 tests",
         "args": [],
         "available": True,
     },
@@ -265,7 +287,7 @@ GROUPS = [
     {
         "id": "phase6_bounds",
         "label": "↳ Bornes port & poll_interval",
-        "desc": "port 0/-1/>65535, poll_interval ≤0 · 11 tests",
+        "desc": "port 0/-1/>65535, poll_interval ≤0 · 10 tests",
         "args": ["tests/test_06_input_validation.py::TestEmailConfigBounds"],
         "available": True, "sub": True, "parent": "phase6",
     },
@@ -286,15 +308,22 @@ GROUPS = [
     {
         "id": "phase6_n_param",
         "label": "↳ Paramètre n invalide (/api/recent)",
-        "desc": "n=abc → 400, n=3.14 → 400, n vide, bornes · 5 tests",
+        "desc": "n=abc → 400, n=3.14 → 400, n vide, bornes · 6 tests",
         "args": ["tests/test_06_input_validation.py::TestApiRecentNParam"],
+        "available": True, "sub": True, "parent": "phase6",
+    },
+    {
+        "id": "phase6_upload_ext",
+        "label": "↳ Extension refusée à l'upload",
+        "desc": ".txt, .pdf.exe, sans extension → refusés ; .PDF accepté · 4 tests",
+        "args": ["tests/test_06_input_validation.py::TestUploadExtension"],
         "available": True, "sub": True, "parent": "phase6",
     },
     # ─── Phase 7 ─── Interface utilisateur (Playwright) ───────────────────
     {
         "id": "phase7",
         "label": "Phase 7 — Interface utilisateur (UI)",
-        "desc": "Tests Playwright Chromium headless · 28 tests",
+        "desc": "Tests Playwright Chromium headless · 66 tests",
         "args": [],
         "available": True,
     },
@@ -364,11 +393,18 @@ GROUPS = [
         "args": ["tests/test_07_ui.py::TestUiFilenameTokens"],
         "available": True, "sub": True, "parent": "phase7",
     },
+    {
+        "id": "phase7_signin",
+        "label": "↳ Connexion (navigateur sans clé)",
+        "desc": "Page de connexion, interface chargée, réglage enregistré, déconnexion, session expirée · 6 tests",
+        "args": ["tests/test_07_ui.py::TestUiSignIn"],
+        "available": True, "sub": True, "parent": "phase7",
+    },
     # ─── Phase 8 ─── File-drop avancé ──────────────────────────────────────
     {
         "id": "phase8",
         "label": "Phase 8 — File-drop avancé",
-        "desc": "Vérification page-count, corruption config, robustesse répertoires · 15 tests",
+        "desc": "Page-count, corruption config, répertoires, persistance, rétention, pages blanches · 26 tests",
         "args": [],
         "available": True,
     },
@@ -400,6 +436,20 @@ GROUPS = [
         "args": ["tests/test_08_filedrop.py::TestConfigPersistence"],
         "available": True, "sub": True, "parent": "phase8",
     },
+    {
+        "id": "phase8_retention",
+        "label": "↳ Rétention automatique",
+        "desc": "Suppression des anciens fichiers processed/ et error/ (RETENTION_DAYS_*) · 4 tests",
+        "args": ["tests/test_08_filedrop.py::TestRetention"],
+        "available": True, "sub": True, "parent": "phase8",
+    },
+    {
+        "id": "phase8_blank",
+        "label": "↳ Séparateurs pages blanches",
+        "desc": "Découpage sur page blanche via le watchdog (BLANK_PAGE_SPLIT) · 2 tests",
+        "args": ["tests/test_08_filedrop.py::TestBlankPageSplit"],
+        "available": True, "sub": True, "parent": "phase8",
+    },
     # ─── Phase 2 — supplementaire ────────────────────────────────────────────
     {
         "id": "phase2_concurrent",
@@ -413,6 +463,20 @@ GROUPS = [
         "label": "↳ Format uniforme des erreurs",
         "desc": "{ok:false, error:...} sur tous les endpoints d'erreur · 6 tests",
         "args": ["tests/test_02_api.py::TestApiErrorFormat"],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_responsiveness",
+        "label": "↳ Réactivité sous charge",
+        "desc": "GET /api/tasks reste rapide pendant plusieurs rendus simultanés · 1 test",
+        "args": ["tests/test_02_api.py::TestApiConcurrencyRobustness"],
+        "available": True, "sub": True, "parent": "phase2",
+    },
+    {
+        "id": "phase2_detect_blank",
+        "label": "↳ Détection : métriques pages blanches",
+        "desc": "/api/detect expose ink_ratio et le verdict blanc par page · 4 tests",
+        "args": ["tests/test_02_api.py::TestApiDetectBlank"],
         "available": True, "sub": True, "parent": "phase2",
     },
 
