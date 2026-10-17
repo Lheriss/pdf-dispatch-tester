@@ -116,23 +116,27 @@ class TestApiAuth:
         s.headers["X-API-Key"] = "wrong-" + uuid.uuid4().hex
         assert s.get(f"{server}/api/state").status_code == 401
 
-    def test_missing_key_accepted(self, server):
-        """pdf-dispatch only enforces auth when a key IS provided.
-        No key → 200 (open access by design for self-hosted).
+    def test_missing_key_rejected(self, server):
+        """No credential at all → 401.
+
+        pdf-dispatch used to enforce auth only when a key was provided, so a
+        request without X-API-Key was silently allowed (auth bypass, fixed in
+        v1.7.4). Anonymous access is now refused whenever a key exists, which
+        is always the case after first start.
         """
         r = requests.get(f"{server}/api/state")
-        assert r.status_code == 200
+        assert r.status_code == 401
 
     def test_healthz_is_public(self, server):
         assert requests.get(f"{server}/healthz").status_code == 200
 
-    def test_upload_without_key_accepted(self, server):
-        """Same auth design: no key → accepted (not rejected)."""
+    def test_upload_without_key_rejected(self, server):
+        """Anonymous upload → 401 (nothing is accepted for processing)."""
         r = requests.post(
             f"{server}/api/upload",
             files={"file": ("t.pdf", _pdf_plain(), "application/pdf")},
         )
-        assert r.status_code in (200, 400)
+        assert r.status_code == 401
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -394,11 +398,11 @@ class TestApiErrors:
 class TestApiAuthBypass:
     """Malicious attempts to bypass or confuse authentication."""
 
-    def test_empty_key_returns_200(self, server):
-        """Empty key = no key. Auth only enforced for non-empty wrong keys."""
+    def test_empty_key_rejected(self, server):
+        """Empty key = no key → 401 (an empty header must not open access)."""
         s = requests.Session(); s.headers["X-API-Key"] = ""
         r = s.get(f"{server}/api/state")
-        assert r.status_code == 200; _no_5xx(r)
+        assert r.status_code == 401; _no_5xx(r)
 
     def test_whitespace_key(self, server):
         """Whitespace keys are rejected by requests lib client-side (InvalidHeader)."""
