@@ -14,18 +14,26 @@ attack vectors identified in the security audit:
      - POST /api/email/configs/{id} (update) response must not contain password_enc
      - GET /api/state never exposes password_enc (regression guard)
 
+  C. Authentication bypass (anonymous requests)
+     - Any request with no X-API-Key must be rejected (HTTP 401) when a key
+       is configured, even when APP_USERNAME/APP_PASSWORD are not set.
+     - Wrong API key must always be rejected.
+     - Valid API key must still be accepted (regression guard).
+     - /healthz must remain publicly accessible.
+
 Marker: (no marker — runs as part of the default test suite)
 """
 
 from __future__ import annotations
 
+import requests
 import pytest
 
 from helpers import get_config, set_config, set_triggers
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 def _post_config(http, server, payload: dict) -> tuple[int, dict]:
     r = http.post(f"{server}/api/config", json=payload)
@@ -56,9 +64,9 @@ def _make_email_payload(**overrides) -> dict:
     return base
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # A. Config poisoning via POST /api/config
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 class TestConfigPoisoning:
     """
@@ -76,7 +84,7 @@ class TestConfigPoisoning:
                    separator_placement=snap.get("separator_placement", "before"))
         _cleanup_email_configs(http, server)
 
-    # ── email_configs injection ───────────────────────────────────────────────
+    # ── email_configs injection ────────────────────────────────────────────────
 
     def test_email_configs_injection_rejected(self, http, server):
         """Injecting email_configs via POST /api/config must return HTTP 400."""
@@ -105,7 +113,7 @@ class TestConfigPoisoning:
             "email_configs changed after a rejected POST /api/config"
         )
 
-    # ── stats poisoning ───────────────────────────────────────────────────────
+    # ── stats poisoning ─────────────────────────────────────────────────────────
 
     def test_stats_injection_rejected(self, http, server):
         """Injecting stats via POST /api/config must return HTTP 400."""
@@ -127,7 +135,7 @@ class TestConfigPoisoning:
             f"to {after['processed']} after rejected injection"
         )
 
-    # ── counter poisoning ─────────────────────────────────────────────────────
+    # ── counter poisoning ───────────────────────────────────────────────────────────
 
     def test_counter_injection_rejected(self, http, server):
         """The internal file counter must not be settable via POST /api/config."""
@@ -137,7 +145,7 @@ class TestConfigPoisoning:
         )
         assert not body.get("ok")
 
-    # ── dirs path traversal ───────────────────────────────────────────────────
+    # ── dirs path traversal ──────────────────────────────────────────────────────────
 
     def test_dirs_path_traversal_rejected(self, http, server):
         """Attempting to redirect 'output' outside DATA_DIR via POST /api/config must fail."""
@@ -246,9 +254,9 @@ class TestConfigPoisoning:
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # B. password_enc exposure in email config responses
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 class TestPasswordEncExposure:
     """
@@ -343,4 +351,129 @@ class TestPasswordEncExposure:
         assert update_r.status_code == 200
         assert secret not in update_r.text, (
             "Cleartext password found in update response body"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# C. Authentication bypass
+# ─────────────────────────────────────────────────────────────────────────────────
+
+class TestAuthBypass:
+    """
+    Verifies that anonymous requests are rejected when an API key is
+    configured, even when APP_USERNAME/APP_PASSWORD are not set.
+
+    Vulnerability (fixed): auth.py previously allowed any request through
+    when no X-API-Key was provided and Basic auth was not configured —
+    meaning a request with no credentials at all would bypass authentication
+    entirely.  A key being generated and stored does not protect the API if
+    the server never *requires* it on anonymous requests.
+
+    Fix: if a stored API key exists, any request that does not present a
+    valid X-API-Key must be rejected with HTTP 401.
+    """
+
+    @pytest.fixture
+    def anon(self, server):
+        """Unauthenticated requests.Session (no X-API-Key, no Basic auth)."""
+        s = requests.Session()
+        s.headers["Accept"] = "application/json"
+        return s
+
+    @pytest.fixture
+    def bad_key(self, server):
+        """Session carrying a syntactically valid but wrong API key."""
+        s = requests.Session()
+        s.headers["X-API-Key"] = "0" * 64   # 64-char hex string, definitely wrong
+        s.headers["Accept"]    = "application/json"
+        return s
+
+    # ── Anonymous requests (no credentials at all) ───────────────────────────
+
+    def test_anonymous_get_state_rejected(self, anon, server):
+        """GET /api/state without credentials → 401 (not 200)."""
+        r = anon.get(f"{server}/api/state")
+        assert r.status_code == 401, (
+            f"Anonymous GET /api/state must be rejected, got {r.status_code}: {r.text[:120]}"
+        )
+
+    def test_anonymous_config_write_rejected(self, anon, server):
+        """POST /api/config without credentials → 401."""
+        r = anon.post(f"{server}/api/config", json={"separator_placement": "after"})
+        assert r.status_code == 401, (
+            f"Anonymous POST /api/config must be rejected, got {r.status_code}"
+        )
+
+    def test_anonymous_upload_rejected(self, anon, server):
+        """POST /api/upload without credentials → 401."""
+        dummy_pdf = b"%PDF-1.4 1 0 obj<</Type/Catalog>>endobj\nxref\n0 0\ntrailer<</Size 1>>startxref 9\n%%EOF"
+        r = anon.post(
+            f"{server}/api/upload",
+            files={"file": ("x.pdf", dummy_pdf, "application/pdf")},
+        )
+        assert r.status_code == 401, (
+            f"Anonymous POST /api/upload must be rejected, got {r.status_code}"
+        )
+
+    def test_anonymous_email_config_read_rejected(self, anon, server):
+        """GET /api/state (which includes email_configs) must not be accessible anonymously."""
+        r = anon.get(f"{server}/api/state")
+        assert r.status_code == 401, (
+            f"Anonymous access to /api/state (email configs) must be rejected, "
+            f"got {r.status_code}"
+        )
+
+    # ── Wrong API key ─────────────────────────────────────────────────────────────
+
+    def test_wrong_key_on_read_rejected(self, bad_key, server):
+        """Wrong X-API-Key on GET /api/state → 401."""
+        r = bad_key.get(f"{server}/api/state")
+        assert r.status_code == 401, (
+            f"Wrong API key on GET /api/state must be rejected, got {r.status_code}"
+        )
+
+    def test_wrong_key_on_write_rejected(self, bad_key, server):
+        """Wrong X-API-Key on a state-modifying endpoint → 401."""
+        r = bad_key.post(f"{server}/api/config", json={"separator_placement": "after"})
+        assert r.status_code == 401, (
+            f"Wrong API key on POST /api/config must be rejected, got {r.status_code}"
+        )
+
+    # ── Regression guards ───────────────────────────────────────────────────────────
+
+    def test_valid_key_still_accepted(self, http, server):
+        """The auth fix must not break requests carrying a valid API key."""
+        r = http.get(f"{server}/api/state")
+        assert r.status_code == 200, (
+            f"Valid API key must still be accepted, got {r.status_code}"
+        )
+
+    def test_healthz_always_public(self, anon, server):
+        """/healthz must be accessible without credentials (Docker HEALTHCHECK)."""
+        r = anon.get(f"{server}/healthz")
+        assert r.status_code == 200, (
+            f"/healthz must be public, got {r.status_code}: {r.text[:80]}"
+        )
+
+    def test_anonymous_write_does_not_modify_state(self, anon, server, http):
+        """
+        Even if an anonymous request were to slip through, it must not leave
+        any trace on server state.  This test confirms the 401 is issued
+        AND that config is unmodified.
+        """
+        before = http.get(f"{server}/api/state").json()
+        sep_before = before.get("app_config", {}).get("separator_placement", "before")
+        new_val = "after" if sep_before == "before" else "before"
+
+        anon.post(f"{server}/api/config", json={"separator_placement": new_val})
+
+        sep_after = (
+            http.get(f"{server}/api/state")
+                .json()
+                .get("app_config", {})
+                .get("separator_placement")
+        )
+        assert sep_after == sep_before, (
+            f"Anonymous request must not modify config: separator_placement "
+            f"changed from {sep_before!r} to {sep_after!r}"
         )
