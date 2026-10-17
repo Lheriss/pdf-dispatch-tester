@@ -21,6 +21,10 @@ attack vectors identified in the security audit:
      - Valid API key must still be accepted (regression guard).
      - /healthz must remain publicly accessible.
 
+  D. API key bootstrap
+     - The api_key must be non-empty in /api/state from the very first
+       request (auto-generated at startup, not waiting for manual action).
+
 Marker: (no marker — runs as part of the default test suite)
 """
 
@@ -159,13 +163,9 @@ class TestConfigPoisoning:
 
     def test_dirs_absolute_path_rejected(self, http, server):
         """Absolute paths in dirs must be rejected by the safe-path validator."""
-        # An absolute-looking path gets caught by the forbidden-chars check
-        # or the resolve-check when combined with DATA_DIR.
         code, body = _post_config(http, server, {
             "dirs": {"input": "/etc/passwd"}
         })
-        # Either 400 (blocked) or the path is sanitised and rejected —
-        # either way the route must not accept a clear traversal attempt.
         assert code == 400, (
             f"Expected HTTP 400 for absolute path in dirs, got {code}: {body}"
         )
@@ -180,18 +180,7 @@ class TestConfigPoisoning:
         )
 
     def test_dirs_sibling_dir_rejected(self, http, server):
-        """Path resolving to a DATA_DIR *sibling* must be rejected.
-
-        The old startswith() check incorrectly accepted '/data_sibling' when
-        DATA_DIR was '/data' (startswith('/data') is True for '/data_sibling').
-        The fix uses Path.relative_to() which raises ValueError in this case.
-        """
-        # 'output../sibling' resolves to DATA_DIR/../sibling = parent/sibling
-        # after the FORBIDDEN check (only blocks /<>:"|?*\x00-\x1f\)
-        # A path starting with 'output' then going up via the filesystem is
-        # harder to craft; instead use a value that the validator must handle.
-        # We inject via POST /api/config which validates through
-        # _safe_relative_path, not via the dirs/rename endpoint.
+        """Path resolving to a DATA_DIR *sibling* must be rejected."""
         code, body = _post_config(http, server, {
             "dirs": {"output": "output/../../data_sibling"}
         })
@@ -240,13 +229,12 @@ class TestConfigPoisoning:
         new_sep = "after" if original_sep == "before" else "before"
 
         code, body = _post_config(http, server, {
-            "separator_placement": new_sep,   # legitimate
-            "email_configs":       [],         # blocked
+            "separator_placement": new_sep,
+            "email_configs":       [],
         })
         assert code == 400, (
             f"Mixed payload with blocked key must be rejected entirely, got {code}"
         )
-        # The legitimate field must NOT have been applied
         current = get_config(http, server).get("separator_placement", "before")
         assert current == original_sep, (
             f"separator_placement changed from {original_sep!r} to {current!r} "
@@ -261,8 +249,7 @@ class TestConfigPoisoning:
 class TestPasswordEncExposure:
     """
     password_enc must never appear in API responses, even when a password
-    is stored internally.  Only /api/state → app_config had this guarantee
-    before; it must now also hold for the CRUD response bodies.
+    is stored internally.
     """
 
     @pytest.fixture(autouse=True)
@@ -384,14 +371,12 @@ class TestAuthBypass:
     def bad_key(self, server):
         """Session carrying a syntactically valid but wrong API key."""
         s = requests.Session()
-        s.headers["X-API-Key"] = "0" * 64   # 64-char hex string, definitely wrong
+        s.headers["X-API-Key"] = "0" * 64
         s.headers["Accept"]    = "application/json"
         return s
 
-    # ── Anonymous requests (no credentials at all) ───────────────────────────
-
     def test_anonymous_get_state_rejected(self, anon, server):
-        """GET /api/state without credentials → 401 (not 200)."""
+        """GET /api/state without credentials → 401."""
         r = anon.get(f"{server}/api/state")
         assert r.status_code == 401, (
             f"Anonymous GET /api/state must be rejected, got {r.status_code}: {r.text[:120]}"
@@ -416,14 +401,9 @@ class TestAuthBypass:
         )
 
     def test_anonymous_email_config_read_rejected(self, anon, server):
-        """GET /api/state (which includes email_configs) must not be accessible anonymously."""
+        """GET /api/state (which exposes email_configs) must not be accessible anonymously."""
         r = anon.get(f"{server}/api/state")
-        assert r.status_code == 401, (
-            f"Anonymous access to /api/state (email configs) must be rejected, "
-            f"got {r.status_code}"
-        )
-
-    # ── Wrong API key ─────────────────────────────────────────────────────────────
+        assert r.status_code == 401
 
     def test_wrong_key_on_read_rejected(self, bad_key, server):
         """Wrong X-API-Key on GET /api/state → 401."""
@@ -435,18 +415,12 @@ class TestAuthBypass:
     def test_wrong_key_on_write_rejected(self, bad_key, server):
         """Wrong X-API-Key on a state-modifying endpoint → 401."""
         r = bad_key.post(f"{server}/api/config", json={"separator_placement": "after"})
-        assert r.status_code == 401, (
-            f"Wrong API key on POST /api/config must be rejected, got {r.status_code}"
-        )
-
-    # ── Regression guards ───────────────────────────────────────────────────────────
+        assert r.status_code == 401
 
     def test_valid_key_still_accepted(self, http, server):
         """The auth fix must not break requests carrying a valid API key."""
         r = http.get(f"{server}/api/state")
-        assert r.status_code == 200, (
-            f"Valid API key must still be accepted, got {r.status_code}"
-        )
+        assert r.status_code == 200
 
     def test_healthz_always_public(self, anon, server):
         """/healthz must be accessible without credentials (Docker HEALTHCHECK)."""
@@ -457,9 +431,8 @@ class TestAuthBypass:
 
     def test_anonymous_write_does_not_modify_state(self, anon, server, http):
         """
-        Even if an anonymous request were to slip through, it must not leave
-        any trace on server state.  This test confirms the 401 is issued
-        AND that config is unmodified.
+        Anonymous request must not modify server state (confirmed via 401
+        and by checking the config is unchanged).
         """
         before = http.get(f"{server}/api/state").json()
         sep_before = before.get("app_config", {}).get("separator_placement", "before")
@@ -476,4 +449,56 @@ class TestAuthBypass:
         assert sep_after == sep_before, (
             f"Anonymous request must not modify config: separator_placement "
             f"changed from {sep_before!r} to {sep_after!r}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# D. API key bootstrap
+# ─────────────────────────────────────────────────────────────────────────────────
+
+class TestApiKeyBootstrap:
+    """
+    Verifies that an API key is present from the very first request,
+    without requiring manual intervention in the UI.
+
+    Regression guard for the window that existed between first startup
+    and the user clicking \"Regenerate API key\": during that window
+    api_key was \"\" and anonymous requests were silently allowed.
+
+    After the fix (_ensure_api_key called from create_app), the key is
+    generated and persisted before the HTTP server accepts connections,
+    so this window no longer exists.
+    """
+
+    def test_api_key_present_in_state(self, http, server):
+        """GET /api/state must return a non-empty api_key in app_config."""
+        r = http.get(f"{server}/api/state")
+        assert r.status_code == 200
+        app_config = r.json().get("app_config", {})
+        api_key = app_config.get("api_key", "")
+        assert api_key, (
+            "api_key must be non-empty in /api/state from the first request — "
+            "it should have been auto-generated at startup by _ensure_api_key(). "
+            f"Got: {api_key!r}"
+        )
+
+    def test_api_key_minimum_length(self, http, server):
+        """The auto-generated API key must be at least 32 characters long."""
+        app_config = http.get(f"{server}/api/state").json().get("app_config", {})
+        api_key = app_config.get("api_key", "")
+        # secrets.token_hex(32) produces 64 hex chars; env var keys may vary.
+        # Enforce a reasonable minimum to catch accidental short keys.
+        assert len(api_key) >= 32, (
+            f"API key is too short ({len(api_key)} chars, expected >= 32): {api_key!r}"
+        )
+
+    def test_api_key_is_hex(self, http, server):
+        """The auto-generated API key must be a hex string (no special chars)."""
+        import re
+        app_config = http.get(f"{server}/api/state").json().get("app_config", {})
+        api_key = app_config.get("api_key", "")
+        # Allow uppercase and lowercase hex, plus env-var keys that may differ.
+        # The main guard: no whitespace, no control characters, no quotes.
+        assert api_key and not re.search(r'[\s\x00-\x1f"\']', api_key), (
+            f"API key contains invalid characters: {api_key!r}"
         )
