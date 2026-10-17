@@ -163,25 +163,40 @@ services:
       # throws in the main thread BEFORE the flags above are applied. auth then
       # silently reverts to enabled and pdftester is never seeded, so every IMAP
       # login fails with the exact same "Invalid login/password" message even
-      # though this config is correct. Guarded by -Dgreenmail.startup.timeout
-      # below AND the healthcheck (tester waits for service_healthy).
+      # though this config is correct. Guarded by -Dgreenmail.startup.timeout,
+      # by not starting the unused smtps server, AND by a healthcheck that
+      # performs a real IMAP login (tester waits for service_healthy).
       # -Dgreenmail.startup.timeout=15000 — the per-server startup health check
       # defaults to 2000 ms. On a loaded host the smtps server (:3465) can take
       # longer to bind, and GreenMail.start() then throws in the main thread
       # BEFORE the setup flags (users, auth.disabled) are applied — which
       # silently reintroduces the "Invalid login/password" failure even though
       # the config is correct. A generous timeout makes startup robust.
-      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.auth.disabled -Dgreenmail.startup.timeout=15000 -Dgreenmail.verbose=false"
-    # Healthcheck: don't report healthy until BOTH the IMAP (3143) and SMTP
-    # (3025) ports actually accept a connection. The base image is Azul Zulu
-    # OpenJDK (Debian-based) with bash but without nc/curl, so probe the ports
-    # via bash's /dev/tcp — no extra tooling needed. This closes the race where
-    # the tester started as soon as the container was "up", even if GreenMail
-    # had not finished binding its servers (or had aborted startup).
+      #
+      # Only the servers the tester actually uses are started (instead of
+      # -Dgreenmail.setup.test.all, which also starts smtps:3465, pop3:3110 and
+      # pop3s:3995): smtp:3025 (tester sends mail), imap:3143 (tester preflight
+      # login) and imaps:3993 (pdf-dispatch polls the mailbox). smtps:3465 —
+      # the server that kept aborting startup (seen again on 2026-10-17, on a
+      # stack still deployed without startup.timeout) — is simply not started.
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.setup.test.imaps -Dgreenmail.users=pdftester:pdftester@greenmail -Dgreenmail.hostname=greenmail -Dgreenmail.auth.disabled -Dgreenmail.startup.timeout=15000 -Dgreenmail.verbose=false"
+    # Healthcheck: healthy only when GreenMail is REALLY usable — an actual
+    # IMAP "LOGIN pdftester pdftester" must succeed, then SMTP (3025) and
+    # IMAPS (3993) must accept a connection. A port-only probe is not enough:
+    # when startup aborts (failure mode above), the servers still listen but
+    # without the pdftester account / auth.disabled, and every login fails.
+    # With this check the tester (condition: service_healthy) waits instead of
+    # running Phase 4 against a broken mail server; recreate the greenmail
+    # container if it stays unhealthy.
+    # Host is "greenmail", NOT localhost: -Dgreenmail.hostname=greenmail makes
+    # every server bind to that address only (bindAddress='greenmail' in the
+    # GreenMail log), so localhost would never answer.
+    # The base image (Azul Zulu, Debian) has bash but no nc/curl → bash
+    # /dev/tcp. "$$" escapes "$" from docker-compose / Portainer interpolation.
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/3143 && </dev/tcp/localhost/3025' || exit 1"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/greenmail/3143 || exit 1; read -t 5 -r l <&3; printf 'h LOGIN pdftester pdftester\\r\\n' >&3; ok=0; while read -t 5 -r l <&3; do case \"$$l\" in 'h OK'*) ok=1; break;; 'h '*) break;; esac; done; printf 'h2 LOGOUT\\r\\n' >&3; exec 3>&-; [ \"$$ok\" = 1 ] && (</dev/tcp/greenmail/3025) && (</dev/tcp/greenmail/3993)"]
       interval: 5s
-      timeout: 5s
+      timeout: 15s
       retries: 12
-      start_period: 20s
+      start_period: 30s
     # Logs consultables via Portainer → container log viewer (pas d'entrypoint override)
