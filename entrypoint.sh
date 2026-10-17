@@ -10,6 +10,8 @@ echo ""
 cat > /app/config.yaml << YAML
 server:    "${TESTER_SERVER:-http://localhost:5000}"
 api_key:   "${TESTER_API_KEY:-pdf-dispatch-test-key}"
+admin_user:     "${TESTER_ADMIN_USER:-}"
+admin_password: "${TESTER_ADMIN_PASSWORD:-}"
 data_path: "${TESTER_DATA:-/data}"
 webhook_host: "${WEBHOOK_HOST:-localhost}"
 webhook_port: ${WEBHOOK_PORT:-5882}

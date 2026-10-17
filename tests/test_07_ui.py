@@ -10,6 +10,10 @@ Structure :
   TestUiOptions             (Phase 9e — à venir)
   TestUiEmailPanel          (Phase 9f — à venir)
   TestUiWebhook             (Phase 9g — à venir)
+  TestUiSignIn              — Connexion dans un navigateur SANS X-API-Key
+                              (ce que voit un vrai utilisateur ; les autres
+                              classes injectent la clé et n'auraient pas vu
+                              le blocage de l'interface de la v1.7.4).
 
 Marqueur : @pytest.mark.ui
   Tous les tests nécessitent Playwright + Chromium dans le container.
@@ -1136,3 +1140,89 @@ class TestUiFilenameTokens:
         assert after_count > before_count, (
             f"Token list must grow: {before_count} → {after_count}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Connexion — navigateur sans X-API-Key
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ui_sign_in(page, user: str, pwd: str) -> None:
+    """Remplit le formulaire /login et attend le premier refresh() de l'UI."""
+    page.goto("/", wait_until="domcontentloaded")
+    page.wait_for_url("**/login**")
+    page.locator("#username").fill(user)
+    page.locator("#password").fill(pwd)
+    page.locator("button[type=submit]").click()
+    page.locator("#st-proc").wait_for(state="visible")
+    page.wait_for_function(
+        "() => /\\d/.test(document.getElementById('st-proc')?.textContent ?? '')"
+    )
+
+
+@pytest.mark.ui
+class TestUiSignIn:
+    """Parcours réel d'un utilisateur : page de connexion → interface → déconnexion.
+
+    Utilise ui_anon_page (aucun identifiant injecté) et le compte prédéfini
+    APP_USERNAME / APP_PASSWORD (= TESTER_ADMIN_USER / TESTER_ADMIN_PASSWORD).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_option(self, http, server):
+        from helpers import set_config
+        set_config(http, server, delete_source=False)
+        yield
+        set_config(http, server, delete_source=False)
+
+    def test_redirected_to_login(self, ui_anon_page, admin_creds):
+        """Sans session, ouvrir / mène à la page de connexion (pas une erreur 401)."""
+        ui_anon_page.goto("/", wait_until="domcontentloaded")
+        ui_anon_page.wait_for_url("**/login**")
+        assert ui_anon_page.locator("#password").count() == 1
+        assert ui_anon_page._js_errors == []
+
+    def test_wrong_password_shows_error(self, ui_anon_page, admin_creds):
+        ui_anon_page.goto("/login", wait_until="domcontentloaded")
+        ui_anon_page.locator("#username").fill(admin_creds[0])
+        ui_anon_page.locator("#password").fill("definitely-wrong")
+        ui_anon_page.locator("button[type=submit]").click()
+        ui_anon_page.locator(".login-error").wait_for(state="visible")
+        assert "/login" in ui_anon_page.url
+
+    def test_sign_in_loads_interface(self, ui_anon_page, admin_creds):
+        """Après connexion, l'interface se charge sans erreur JS et propose la déconnexion."""
+        _ui_sign_in(ui_anon_page, *admin_creds)
+        assert ui_anon_page.locator("#upload-zone").count() == 1
+        assert ui_anon_page.locator("form.logout-form").count() == 1
+        assert ui_anon_page._js_errors == [], (
+            "Erreurs JS après connexion :\n" + "\n".join(ui_anon_page._js_errors))
+
+    def test_setting_saved_from_signed_in_ui(self, ui_anon_page, admin_creds, http, server):
+        """Un réglage modifié depuis l'UI connectée est enregistré.
+
+        Vérifie de bout en bout l'en-tête CSRF (X-Requested-With) ajouté par
+        app.js : sans lui, le POST authentifié par cookie serait refusé (403).
+        """
+        from helpers import get_config
+        _ui_sign_in(ui_anon_page, *admin_creds)
+        _open_settings_section(ui_anon_page)
+        _open_options_section(ui_anon_page)
+        with ui_anon_page.expect_response(
+                lambda r: r.url.endswith("/api/config") and r.request.method == "POST") as resp:
+            ui_anon_page.locator("label.toggle:has(#opt-delete)").click()
+        assert resp.value.status == 200, f"POST /api/config depuis l'UI : {resp.value.status}"
+        assert get_config(http, server)["delete_source"] is True
+
+    def test_sign_out_returns_to_login(self, ui_anon_page, admin_creds):
+        _ui_sign_in(ui_anon_page, *admin_creds)
+        ui_anon_page.locator("form.logout-form button").click()
+        ui_anon_page.wait_for_url("**/login**")
+        status = ui_anon_page.evaluate("async () => (await fetch('/api/state')).status")
+        assert status == 401
+
+    def test_expired_session_returns_to_login(self, ui_anon_page, admin_creds):
+        """Session perdue (cookie effacé) : le rafraîchissement automatique
+        renvoie vers /login au lieu de laisser l'interface en erreur."""
+        _ui_sign_in(ui_anon_page, *admin_creds)
+        ui_anon_page.context.clear_cookies()
+        ui_anon_page.wait_for_url("**/login**", timeout=30_000)

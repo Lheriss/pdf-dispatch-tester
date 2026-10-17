@@ -6,6 +6,12 @@
 server:  "http://your-nas-ip:5881"
 api_key: "pdf-dispatch-test-key"
 
+# ── Web-interface administrator account (sign-in tests) ──────────────────────
+# Must match APP_USERNAME / APP_PASSWORD of the pdf-dispatch test instance.
+# Leave empty to skip the sign-in tests (test_05 TestWebSignIn, test_07 TestUiSignIn).
+admin_user:     "pdftester-admin"
+admin_password: "pdftester-admin-password"
+
 # ── Filesystem access (Phase 1 — core processing tests) ──────────────────────
 # Path to the pdf-dispatch /data directory, accessible from where the tester runs.
 #

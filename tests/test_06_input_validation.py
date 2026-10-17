@@ -20,6 +20,11 @@ Covers five vulnerabilities identified in the security audit:
   H. /api/recent?n=<non-integer> → unhandled ValueError → 500
      → Returns HTTP 400 with an error message instead.
 
+  I. Non-PDF files accepted by /api/upload (pdf-dispatch < 1.8)
+     → The filename was rebuilt as '<stem>.pdf' before the extension check,
+       so 'document.txt' was accepted and queued. Now rejected at upload
+       time (reported in errors[], nothing written to input/).
+
 No marker — runs as part of the default test suite.
 """
 from __future__ import annotations
@@ -390,3 +395,33 @@ class TestApiRecentNParam:
             assert token not in r.text, (
                 f"Stack trace exposed for invalid n: {r.text[:300]}"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I. Non-PDF extension rejected at upload time
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestUploadExtension:
+
+    @pytest.mark.parametrize("filename", ["document.txt", "scan.pdf.exe", "noextension"])
+    def test_non_pdf_reported_and_not_saved(self, http, server, cfg, filename):
+        """A non-.pdf name is reported in errors[] and never reaches input/."""
+        import os
+        r = http.post(f"{server}/api/upload",
+                      files={"file": (filename, b"not a pdf", "application/octet-stream")})
+        assert r.status_code == 200, r.text[:200]
+        body = r.json()
+        assert body.get("saved") == [], f"{filename} must not be accepted: {body}"
+        assert body.get("errors"), f"{filename} must be reported in errors[]: {body}"
+        data_path = cfg.get("data_path") or ""
+        input_dir = os.path.join(data_path, "input")
+        if data_path and os.path.isdir(input_dir):
+            stem = filename.split(".")[0]
+            leftovers = [f for f in os.listdir(input_dir) if f.startswith(stem)]
+            assert leftovers == [], f"Rejected upload left files in input/: {leftovers}"
+
+    def test_uppercase_pdf_extension_accepted(self, http, server):
+        """Regression guard: '.PDF' is still a PDF (accepted and processed)."""
+        pdf = make_pdf([{"kind": "content", "text": "uppercase extension"}])
+        task = upload_and_wait(http, server, pdf, filename="UPPER_CASE.PDF")
+        assert task["status"] == "success", f"Unexpected task: {task}"

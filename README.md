@@ -15,8 +15,8 @@ Les tests s'exécutent contre une **instance réelle et déployée** de pdf-disp
 | 2 | `test_02_api.py` | Endpoints REST — upload, tâches, config, sécurité | ✅ | ❌ | ❌ | ❌ |
 | 3 | `test_03_webhook.py` | Webhook sortant, payload, HMAC | ✅ | ❌ | ❌ | ❌ |
 | 4 | `test_04_email.py` | Ingestion IMAP — pipeline SMTP → Greenmail → pdf-dispatch → /data | ✅ | ✅ | ✅ | ❌ |
-| 5 | `test_05_security.py` | Sécurité API — injection config, traversal, `password_enc` | ✅ | ❌ | ❌ | ❌ |
-| 6 | `test_06_input_validation.py` | Validation entrées — CRLF, bornes port, log injection, paramètre `n` | ✅ | ❌ | ❌ | ❌ |
+| 5 | `test_05_security.py` | Sécurité — injection config, `password_enc`, accès anonyme, connexion web, réglages protégés | ✅ | ❌ | ❌ | ❌ |
+| 6 | `test_06_input_validation.py` | Validation entrées — CRLF, bornes port, log injection, paramètre `n`, extension à l'upload | ✅ | ❌ | ❌ | ❌ |
 | 7 | `test_07_ui.py` | Interface web — Playwright/Chromium headless | ✅ | ❌ | ❌ | ✅ |
 | 8 | `test_08_filedrop.py` | File-drop filesystem — page-count, corruption config, robustesse répertoires | ✅ | ✅ | ❌ | ❌ |
 
@@ -130,6 +130,10 @@ Greenmail est démarré automatiquement dans le stack. Aucun compte email extern
 
 Teste la résistance de `POST /api/config` aux tentatives d'injection (clés internes, champs non prévus, valeurs mal typées) et vérifie que `password_enc` n'est jamais exposé par un endpoint. Aucun accès filesystem requis.
 
+Couvre aussi l'authentification de pdf-dispatch ≥ 1.8 : refus des requêtes anonymes, connexion web par compte administrateur (redirection vers `/login`, attributs du cookie de session, protection CSRF, déconnexion, en-tête Basic accepté mais jamais sollicité, absence d'open redirect) et réglages protégés (`api_key`, compte administrateur et secret de session ni lisibles ni modifiables via `/api/config`).
+
+**Compte administrateur :** les tests de connexion utilisent `TESTER_ADMIN_USER` / `TESTER_ADMIN_PASSWORD`, qui doivent correspondre à `APP_USERNAME` / `APP_PASSWORD` de l'instance testée (définis dans `docker-compose.test.yml`). Laissés vides, ces tests sont ignorés (skip). La page d'installation initiale n'est pas testée ici : son code à usage unique n'est affiché que dans le journal du conteneur pdf-dispatch.
+
 ### Phase 6 — Validation des entrées
 
 Valide que les champs texte IMAP (`host`, `username`, `folder`) rejettent les caractères CRLF, que `port` est borné à 1–65535, que `poll_interval` est ≥ 1, que le paramètre `n` de `/api/recent` retourne HTTP 400 sur valeur non entière et que les messages loggés via `/api/log` sont assainis.
@@ -148,6 +152,9 @@ Nécessite Chromium headless dans le container (installé via `playwright instal
 - `phase7_dirs` — 4 tests · panneau dossiers, chemins, i18n
 - `phase7_apikey` — 6 tests · présence clé, masquage par défaut, toggle show/hide
 - `phase7_tokens` — 5 tests · liste tokens, séparateurs, ajout texte libre
+- `phase7_signin` — 6 tests · **navigateur sans `X-API-Key`** : page de connexion, interface chargée, réglage enregistré (en-tête CSRF), déconnexion, session expirée
+
+Les autres sous-groupes injectent `X-API-Key` dans chaque requête du navigateur ; seul `phase7_signin` voit l'interface comme un vrai utilisateur (c'est lui qui aurait détecté le blocage de l'interface de pdf-dispatch v1.7.4).
 
 
 ### Phase 8 — File-drop filesystem

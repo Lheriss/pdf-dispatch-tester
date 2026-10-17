@@ -34,6 +34,12 @@ services:
       # and break the SHA tracing in /api/runtime and session.log.
       API_KEY:      "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
       EMAIL_SECRET: "0b6af7640f76309263617563d2a365dd8016cc02584a2d58ffc5eadd6b573b72"
+      # Predefined web-interface administrator account (pdf-dispatch >= 1.8):
+      # skips the first-run setup page, whose one-time code is only printed in
+      # this container's log and is therefore out of the tester's reach.
+      # Must match TESTER_ADMIN_USER / TESTER_ADMIN_PASSWORD below.
+      APP_USERNAME: "pdftester-admin"
+      APP_PASSWORD: "pdftester-admin-password"
 
       # ── Barcode scanning ─────────────────────────────────────────────────────
       BARCODE_SCANNER:  ZXING
@@ -107,6 +113,11 @@ services:
       WEBHOOK_HOST:   "localhost"
 
       TESTER_API_KEY: "53b9ac3d008b42d0c12c5bf7a24ca55632c1bbfba74f98c2dc40c1d0c0687fff"
+      # Same values as APP_USERNAME / APP_PASSWORD above — used by the sign-in
+      # tests (test_05 TestWebSignIn, test_07 TestUiSignIn). Leave empty to
+      # skip those tests against an instance without a predefined account.
+      TESTER_ADMIN_USER:     "pdftester-admin"
+      TESTER_ADMIN_PASSWORD: "pdftester-admin-password"
       TESTER_DATA:    "/data"
       WEBHOOK_PORT:   "5882"
       TZ:             "Europe/Zurich"

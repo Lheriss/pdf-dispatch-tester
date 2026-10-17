@@ -95,6 +95,7 @@ def _log_session_header(log, http_session: "requests.Session", server: str, term
     raw_key = os.environ.get("TESTER_API_KEY", "")
     key_display = (raw_key[:8] + "…") if len(raw_key) >= 8 else (raw_key or "?")
     _info(f"TESTER_API_KEY : {key_display}  (8 chars affichés)")
+    _info(f"TESTER_ADMIN_USER : {os.environ.get('TESTER_ADMIN_USER') or '(non défini — tests de connexion ignorés)'}")
     _info(f"WEBHOOK_HOST   : {os.environ.get('WEBHOOK_HOST', '?')!s:<16}  "
           f"WEBHOOK_PORT : {os.environ.get('WEBHOOK_PORT', '?')}")
     gm_smtp_h = os.environ.get("GREENMAIL_SMTP_HOST", "greenmail")
@@ -160,6 +161,23 @@ def server(cfg) -> str:
 @pytest.fixture(scope="session")
 def api_key(cfg) -> str:
     return cfg["api_key"]
+
+
+@pytest.fixture(scope="session")
+def admin_creds(cfg) -> tuple[str, str]:
+    """(username, password) of the pdf-dispatch administrator account.
+
+    Comes from TESTER_ADMIN_USER / TESTER_ADMIN_PASSWORD (config.yaml
+    admin_user / admin_password), which must match the instance's
+    APP_USERNAME / APP_PASSWORD. Tests depending on it are skipped when the
+    values are absent (e.g. an instance with a stored, unknown account).
+    """
+    user = (cfg.get("admin_user") or "").strip()
+    pwd = cfg.get("admin_password") or ""
+    if not (user and pwd):
+        pytest.skip("admin_user/admin_password not configured "
+                    "(TESTER_ADMIN_USER / TESTER_ADMIN_PASSWORD)")
+    return user, pwd
 
 
 @pytest.fixture(scope="session")
@@ -802,6 +820,34 @@ def ui_page(_pw_browser, server, api_key):
     page.wait_for_function(
         "() => /\\d/.test(document.getElementById('st-proc')?.textContent ?? '')"
     )
+
+    yield page
+
+    ctx.close()
+
+
+@pytest.fixture
+def ui_anon_page(_pw_browser, server):
+    """
+    Browser page WITHOUT any injected credential — what a real user's browser
+    sees. Unlike ui_page (which adds X-API-Key to every request and would
+    therefore never notice a locked-out web interface, as in pdf-dispatch
+    v1.7.4), this page must go through the sign-in page.
+
+    Attaches page._js_errors / page._console_errors like ui_page; does not
+    navigate anywhere. The context is closed after the test.
+    """
+    ctx = _pw_browser.new_context(base_url=server)
+    ctx.set_default_timeout(20_000)
+    page = ctx.new_page()
+
+    _js_errors: list[str] = []
+    page.on("pageerror", lambda err: _js_errors.append(str(err)))
+    page._js_errors = _js_errors  # type: ignore[attr-defined]
+    _console_errors: list[str] = []
+    page.on("console", lambda msg: (
+        _console_errors.append(msg.text) if msg.type == "error" else None))
+    page._console_errors = _console_errors  # type: ignore[attr-defined]
 
     yield page
 

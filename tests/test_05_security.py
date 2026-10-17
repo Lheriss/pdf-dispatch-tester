@@ -25,6 +25,21 @@ attack vectors identified in the security audit:
      - The api_key must be non-empty in /api/state from the very first
        request (auto-generated at startup, not waiting for manual action).
 
+  E. Web-interface sign-in (pdf-dispatch >= 1.8, administrator account)
+     - A browser asking for a page is redirected to /login — never a bare
+       401 or a Basic prompt (the v1.7.4 web-interface lockout).
+     - Wrong password → 401, no session; right password → session cookie
+       (HttpOnly, SameSite=Lax, no password inside).
+     - Session writes require X-Requested-With (CSRF); sign-out ends it.
+     - Basic Authorization header accepted, never solicited.
+     - /login only redirects to local paths; /setup is closed once an
+       account exists; the API description is public, /api/runtime is not.
+
+  F. Protected settings
+     - api_key, administrator account and session secret cannot be set via
+       POST /api/config (api_key="" used to re-open the instance) and are
+       never returned by /api/state.
+
 Marker: (no marker — runs as part of the default test suite)
 """
 
@@ -502,3 +517,161 @@ class TestApiKeyBootstrap:
         assert api_key and not re.search(r'[\s\x00-\x1f"\']', api_key), (
             f"API key contains invalid characters: {api_key!r}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# E. Web-interface sign-in
+# ─────────────────────────────────────────────────────────────────────────────────
+
+_SESSION_COOKIE = "pdf_dispatch_session"
+
+
+def _browser_session() -> requests.Session:
+    """A cookie-keeping session with no credential, like a fresh browser."""
+    s = requests.Session()
+    s.headers["Accept"] = "text/html,application/xhtml+xml"
+    return s
+
+
+def _sign_in(server, user, pwd, **extra) -> tuple[requests.Session, requests.Response]:
+    s = _browser_session()
+    r = s.post(f"{server}/login", data={"username": user, "password": pwd, **extra},
+               allow_redirects=False)
+    return s, r
+
+
+class TestWebSignIn:
+    """Sign-in flow over real HTTP against the running container.
+
+    Complements pdf-dispatch's own test_auth.py (Flask test client) with what
+    only a real server shows: redirects, Set-Cookie attributes, cookies kept
+    across requests. Requires the predefined account (APP_USERNAME /
+    APP_PASSWORD on the instance = TESTER_ADMIN_USER / TESTER_ADMIN_PASSWORD).
+    """
+
+    def test_page_redirects_to_login(self, server, admin_creds):
+        """GET / without credentials → 302 to /login (not 401, not a Basic prompt)."""
+        r = _browser_session().get(f"{server}/", allow_redirects=False)
+        assert r.status_code == 302, (
+            f"A browser opening / must be redirected to the sign-in page, got "
+            f"{r.status_code} — the web interface would be unusable "
+            f"(pdf-dispatch v1.7.4 regression)"
+        )
+        assert "/login" in r.headers.get("Location", "")
+        assert "WWW-Authenticate" not in r.headers
+
+    def test_login_page_renders(self, server, admin_creds):
+        r = _browser_session().get(f"{server}/login")
+        assert r.status_code == 200
+        assert 'name="password"' in r.text
+
+    def test_setup_closed_when_account_exists(self, server, admin_creds):
+        """/setup redirects to /login once an administrator account exists."""
+        r = _browser_session().get(f"{server}/setup", allow_redirects=False)
+        assert r.status_code == 302 and "/login" in r.headers.get("Location", "")
+
+    def test_wrong_password_rejected(self, server, admin_creds):
+        user, _ = admin_creds
+        s, r = _sign_in(server, user, "definitely-not-the-password")
+        assert r.status_code == 401
+        assert _SESSION_COOKIE not in s.cookies
+        assert s.get(f"{server}/api/state").status_code == 401
+
+    def test_api_key_is_not_a_password(self, server, admin_creds, api_key):
+        user, _ = admin_creds
+        _, r = _sign_in(server, user, api_key)
+        assert r.status_code == 401
+
+    def test_sign_in_sets_secure_cookie(self, server, admin_creds):
+        user, pwd = admin_creds
+        s, r = _sign_in(server, user, pwd)
+        assert r.status_code == 302 and r.headers.get("Location") == "/"
+        cookie = r.headers.get("Set-Cookie", "")
+        assert _SESSION_COOKIE in cookie
+        assert "HttpOnly" in cookie, f"Session cookie must be HttpOnly: {cookie}"
+        assert "SameSite=Lax" in cookie, f"Session cookie must be SameSite=Lax: {cookie}"
+        assert pwd not in cookie
+
+    def test_session_grants_page_and_api(self, server, admin_creds):
+        s, _ = _sign_in(server, *admin_creds)
+        r = s.get(f"{server}/")
+        assert r.status_code == 200 and 'action="/logout"' in r.text
+        assert s.get(f"{server}/api/state").status_code == 200
+
+    def test_session_write_requires_csrf_header(self, server, admin_creds):
+        """Cookie-authenticated POST without X-Requested-With → 403; with it → 200."""
+        s, _ = _sign_in(server, *admin_creds)
+        r = s.post(f"{server}/api/config", json={"log_verbose": False})
+        assert r.status_code == 403, f"CSRF protection missing: got {r.status_code}"
+        r = s.post(f"{server}/api/config", json={"log_verbose": False},
+                   headers={"X-Requested-With": "pdf-dispatch-tester"})
+        assert r.status_code == 200
+
+    def test_sign_out_ends_session(self, server, admin_creds):
+        s, _ = _sign_in(server, *admin_creds)
+        r = s.post(f"{server}/logout", allow_redirects=False)
+        assert r.status_code == 302 and "/login" in r.headers.get("Location", "")
+        assert s.get(f"{server}/api/state").status_code == 401
+
+    def test_password_change_refused_for_env_account(self, server, admin_creds):
+        """The predefined (APP_*) account cannot be changed from the API."""
+        s, _ = _sign_in(server, *admin_creds)
+        r = s.post(f"{server}/api/settings/password",
+                   headers={"X-Requested-With": "pdf-dispatch-tester"},
+                   json={"current_password": admin_creds[1],
+                         "new_password": "another-password-123"})
+        assert r.status_code == 400
+        assert r.json().get("error_key") == "auth.error_env_credentials"
+
+    @pytest.mark.parametrize("target", ["//evil.example", "https://evil.example/",
+                                        "/\\evil.example"])
+    def test_login_never_redirects_off_site(self, server, admin_creds, target):
+        _, r = _sign_in(server, *admin_creds, next=target)
+        assert r.status_code == 302
+        assert r.headers.get("Location") == "/", (
+            f"Open redirect: next={target!r} → {r.headers.get('Location')!r}")
+
+    def test_basic_header_accepted(self, server, admin_creds):
+        r = requests.get(f"{server}/api/state", auth=admin_creds,
+                         headers={"Accept": "application/json"})
+        assert r.status_code == 200
+
+    def test_wrong_basic_header_rejected_without_challenge(self, server, admin_creds):
+        """Wrong Basic credentials → 401 with no WWW-Authenticate (no browser prompt)."""
+        r = requests.get(f"{server}/api/state", auth=(admin_creds[0], "wrong-password"),
+                         headers={"Accept": "application/json"})
+        assert r.status_code == 401
+        assert "WWW-Authenticate" not in r.headers
+
+    @pytest.mark.parametrize("path", ["/api/openapi.json", "/api/openapi.yaml", "/api/docs"])
+    def test_api_description_public(self, server, path):
+        assert requests.get(f"{server}{path}").status_code == 200
+
+    def test_runtime_info_protected(self, server):
+        assert requests.get(f"{server}/api/runtime").status_code == 401
+
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# F. Protected settings
+# ─────────────────────────────────────────────────────────────────────────────────
+
+class TestProtectedSettings:
+    """Credentials can only be managed through their dedicated endpoints."""
+
+    @pytest.mark.parametrize("field", ["api_key", "session_secret",
+                                       "admin_username", "admin_password_hash"])
+    def test_cannot_be_set_via_config(self, http, server, field):
+        status, body = _post_config(http, server, {field: ""})
+        assert status == 400, (
+            f"POST /api/config must reject {field!r} (got {status}: {body})")
+
+    def test_clearing_api_key_does_not_open_access(self, http, server):
+        """Regression: {"api_key": ""} used to switch the instance to open mode."""
+        _post_config(http, server, {"api_key": ""})
+        anon = requests.Session(); anon.headers["Accept"] = "application/json"
+        assert anon.get(f"{server}/api/state").status_code == 401
+        assert http.get(f"{server}/api/state").status_code == 200
+
+    @pytest.mark.parametrize("field", ["session_secret", "admin_password_hash"])
+    def test_secrets_not_in_state(self, http, server, field):
+        assert field not in get_config(http, server)
