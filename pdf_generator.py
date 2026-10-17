@@ -115,8 +115,21 @@ def _draw_barcode_page(c: canvas.Canvas, png_bytes: bytes, label: str | None) ->
         c.drawCentredString(PAGE_W / 2, y - 20, label)
 
 
+_BODY_LINE = ("The quick brown fox jumps over the lazy dog. "
+              "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+
+
 def _draw_content_page(c: canvas.Canvas, text: str, subtitle: str | None, page_num: int | None) -> None:
-    """Draw a plain-text content page."""
+    """Draw a content page: centred title (+ optional subtitle) over a body
+    of text, like a real document page.
+
+    The body matters: a title-only page has an ink_ratio of ~0.002, below
+    pdf-dispatch's default BLANK_PAGE_THRESHOLD (0.005). With
+    BLANK_PAGE_SPLIT enabled on the test instance (needed by
+    TestBlankPageSplit), such pages were taken for blank separators —
+    split on and discarded — breaking every processing test that uses
+    content pages. With the body, content pages measure ~0.08.
+    """
     c.setFont("Helvetica-Bold", 18)
     c.setFillColorRGB(0.1, 0.1, 0.1)
     c.drawCentredString(PAGE_W / 2, PAGE_H * 0.60, text)
@@ -125,6 +138,14 @@ def _draw_content_page(c: canvas.Canvas, text: str, subtitle: str | None, page_n
         c.setFont("Helvetica", 12)
         c.setFillColorRGB(0.4, 0.4, 0.4)
         c.drawCentredString(PAGE_W / 2, PAGE_H * 0.60 - 28, subtitle)
+
+    # Body text: from below the title block down to the bottom margin.
+    c.setFont("Helvetica", 11)
+    c.setFillColorRGB(0.15, 0.15, 0.15)
+    y = PAGE_H * 0.60 - 60
+    while y > 3 * cm:
+        c.drawString(2 * cm, y, _BODY_LINE)
+        y -= 16
 
     # Corner label for traceability in manual inspection
     if page_num is not None:
