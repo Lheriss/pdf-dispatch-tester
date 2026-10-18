@@ -45,6 +45,7 @@ Marker: (no marker — runs as part of the default test suite)
 
 from __future__ import annotations
 
+import re
 import requests
 import pytest
 
@@ -523,7 +524,13 @@ class TestApiKeyBootstrap:
 # E. Web-interface sign-in
 # ─────────────────────────────────────────────────────────────────────────────────
 
+# Prefix only: since pdf-dispatch v1.8.3 the name is pdf_dispatch_session_<id>,
+# unique per instance (browsers share cookies across ports of one host).
 _SESSION_COOKIE = "pdf_dispatch_session"
+
+
+def _session_cookies(s: requests.Session) -> list[str]:
+    return [c.name for c in s.cookies if c.name.startswith(_SESSION_COOKIE)]
 
 
 def _browser_session() -> requests.Session:
@@ -574,7 +581,7 @@ class TestWebSignIn:
         user, _ = admin_creds
         s, r = _sign_in(server, user, "definitely-not-the-password")
         assert r.status_code == 401
-        assert _SESSION_COOKIE not in s.cookies
+        assert _session_cookies(s) == []
         assert s.get(f"{server}/api/state").status_code == 401
 
     def test_api_key_is_not_a_password(self, server, admin_creds, api_key):
@@ -587,10 +594,19 @@ class TestWebSignIn:
         s, r = _sign_in(server, user, pwd)
         assert r.status_code == 302 and r.headers.get("Location") == "/"
         cookie = r.headers.get("Set-Cookie", "")
-        assert _SESSION_COOKIE in cookie
+        assert cookie.startswith(_SESSION_COOKIE), f"Unexpected Set-Cookie: {cookie}"
         assert "HttpOnly" in cookie, f"Session cookie must be HttpOnly: {cookie}"
         assert "SameSite=Lax" in cookie, f"Session cookie must be SameSite=Lax: {cookie}"
         assert pwd not in cookie
+
+    def test_cookie_name_is_instance_specific(self, server, admin_creds):
+        """pdf_dispatch_session_<8 hex>: two instances on the same host (ports
+        differ) must not overwrite each other's sign-in cookie."""
+        _, r = _sign_in(server, *admin_creds)
+        cookie = r.headers.get("Set-Cookie", "")
+        assert re.match(r"pdf_dispatch_session_[0-9a-f]{8}=", cookie), (
+            f"Session cookie name must carry the instance identifier: {cookie.split(';')[0]}"
+        )
 
     def test_session_grants_page_and_api(self, server, admin_creds):
         s, _ = _sign_in(server, *admin_creds)
