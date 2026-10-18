@@ -70,5 +70,6 @@ PY
     echo "Running: pytest ${ARGS}"
     echo "Report:  ${REPORT}"
     echo ""
+    export TESTER_RUN_ID="$TS"   # logs/<TS>/ matches report_<TS>.html
     exec python -m pytest $ARGS --html="$REPORT" --self-contained-html
 fi

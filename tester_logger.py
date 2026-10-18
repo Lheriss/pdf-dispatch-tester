@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -85,7 +86,11 @@ class TesterLogger:
     """
 
     def __init__(self, log_dir: Path = Path("logs"), level: int = logging.DEBUG):
-        run_id   = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # The launcher (web runner, entrypoint.sh) passes the run id it also
+        # uses for the HTML report, so logs/<id>/ and report_<id>.html match
+        # and the ZIP export can pick exactly this run's files.
+        run_id   = (os.environ.get("TESTER_RUN_ID", "").strip()
+                    or datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         self.run_dir = log_dir / run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
 

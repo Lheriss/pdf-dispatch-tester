@@ -2,7 +2,7 @@
 web_runner.py — Minimal web interface for pdf-dispatch-tester.
 """
 from __future__ import annotations
-import io, json, os, subprocess, threading, time, zipfile
+import io, json, os, re, subprocess, threading, time, zipfile
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, Response, jsonify, render_template_string, request, send_file
@@ -786,7 +786,9 @@ async function launch(){
       const rl=document.getElementById('report-link');
       rl.href='/report/'+encodeURIComponent(report);rl.style.display='inline';
     }
-    document.getElementById('dl-link').style.display='inline';
+    const dl=document.getElementById('dl-link');
+    dl.href='/download?t='+Date.now();   // never a cached archive
+    dl.style.display='inline';
   });
   es.onerror=()=>{es.close();clearInterval(_ti);btn.disabled=false;stopBtn.style.display='none';setBadge('failed','⚠ Connexion perdue')};
 }
@@ -842,10 +844,14 @@ def run_tests():
         Path("report").mkdir(exist_ok=True)
         cmd += ["--html", report, "--self-contained-html"]
         _job = {"running": True, "lines": [], "returncode": None,
-                "report": report, "started_at": ts, "proc": None}
+                "report": report, "started_at": ts, "run_id": ts, "proc": None}
+        # Same id for logs/<id>/ (TesterLogger) and report_<id>.html, so the
+        # ZIP export packs this run and nothing else.
+        env = {**os.environ, "TESTER_RUN_ID": ts}
         def _run():
             proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                env=env)
             with _lock: _job["proc"] = proc
             for line in proc.stdout:
                 with _lock: _job["lines"].append(line.rstrip())
@@ -855,7 +861,7 @@ def run_tests():
                 _job["returncode"] = proc.returncode
                 _job["proc"] = None
         threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"ok": True, "report": report})
+    return jsonify({"ok": True, "report": report, "run_id": ts})
 
 
 @app.post("/stop")
@@ -933,33 +939,92 @@ def base_info():
     return jsonify({"name": None, "pages": 0})
 
 
+_RUN_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$")
+
+
+def _newest(paths):
+    """Most recently modified path (by mtime, not by name), or None."""
+    return max(paths, key=lambda p: p.stat().st_mtime, default=None)
+
+
 @app.get("/download")
 def download():
-    """Download the latest test session outputs as a ZIP."""
+    """Download the outputs of ONE test run as a ZIP.
+
+    The run is the current/last job of this web runner: its logs/<run_id>/,
+    its report_<run_id>.html and its console output. After a runner restart
+    (no job in memory) it falls back to the most recently modified run on
+    disk. MANIFEST.txt states which run the archive holds and how it was
+    chosen, so a stale or partial archive is recognisable at a glance.
+    """
+    with _lock:
+        job = None
+        if _job:
+            job = {k: _job.get(k) for k in ("run_id", "report", "running",
+                                            "returncode", "started_at")}
+            job["lines"] = list(_job["lines"])
+
+    log_base, notes = Path("logs"), []
+    if job:
+        run_id = job["run_id"] or job["started_at"]
+        run_dir = log_base / run_id
+        report = Path(job["report"]) if job["report"] else None
+        source = "current job of this web runner"
+        if job["running"]:
+            status = "RUNNING — partial results"
+        else:
+            status = "PASSED" if job["returncode"] == 0 else f"FAILED (exit code {job['returncode']})"
+    else:
+        runs = ([p for p in log_base.iterdir() if p.is_dir() and _RUN_ID_RE.match(p.name)]
+                if log_base.is_dir() else [])
+        run_dir = _newest(runs)
+        run_id = run_dir.name if run_dir else "none"
+        report = Path("report") / f"report_{run_id}.html"
+        if not report.exists():
+            report = _newest(list(Path("report").glob("report_*.html"))) if Path("report").is_dir() else None
+            if report:
+                notes.append(f"no report named after run {run_id}; newest report included instead")
+        source = "most recent run on disk (web runner restarted, no job in memory)"
+        status = "unknown (not launched by this runner instance)"
+
     buf = io.BytesIO()
+    included = []
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Latest log directory
-        log_base = Path("logs")
-        if log_base.exists():
-            runs = sorted(log_base.iterdir(), key=lambda p: p.name, reverse=True)
-            if runs:
-                latest = runs[0]
-                for f in latest.iterdir():
-                    if f.is_file():
-                        zf.write(f, f"logs/{latest.name}/{f.name}")
-        # Current job's HTML report
-        with _lock:
-            report = _job.get("report") if _job else None
-        if report:
-            p = Path(report)
-            if p.exists():
-                zf.write(p, p.name)
+        if run_dir and run_dir.is_dir():
+            for f in sorted(run_dir.iterdir()):
+                if f.is_file():
+                    zf.write(f, f"logs/{run_dir.name}/{f.name}")
+                    included.append(f"logs/{run_dir.name}/{f.name}")
+        else:
+            notes.append(f"no log directory for run {run_id} (the run may have stopped "
+                         "before its first test)")
+        if report and report.exists():
+            zf.write(report, report.name)
+            included.append(report.name)
+        else:
+            notes.append("no HTML report found")
+        if job:
+            zf.writestr("console.txt", "\n".join(job["lines"]) + "\n")
+            included.append("console.txt")
+        manifest = [
+            f"Run:          {run_id}",
+            f"Status:       {status}",
+            f"Chosen from:  {source}",
+            f"Archived at:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "Files:",
+            *[f"  {name}" for name in included],
+        ]
+        if notes:
+            manifest += ["", "Notes:", *[f"  - {n}" for n in notes]]
+        zf.writestr("MANIFEST.txt", "\n".join(manifest) + "\n")
     buf.seek(0)
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return send_file(
+    resp = send_file(
         buf, mimetype="application/zip", as_attachment=True,
-        download_name=f"tester_output_{ts}.zip"
+        download_name=f"tester_output_{run_id}.zip"
     )
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/status")
