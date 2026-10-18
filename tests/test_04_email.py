@@ -609,7 +609,10 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "Doc 2"},
         ]))
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # [content][trigger][content] → TWO documents (no_code/ + FK3/), written
+        # one after the other: wait for both, or the second one lands in the
+        # next snapshot and looks like a reprocessing (race seen 2026-10-18).
+        result = _poll_result(http, server, data_dir, before, timeout=90.0, min_count=2)
         assert result.status not in ("timeout",), (
             "Email must be processed before checking processed_ids"
         )
@@ -631,7 +634,10 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "Dedup page 2"},
         ]))
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # [content][trigger][content] → TWO documents (no_code/ + FK3/), written
+        # one after the other: wait for both, or the second one lands in the
+        # next snapshot and looks like a reprocessing (race seen 2026-10-18).
+        result = _poll_result(http, server, data_dir, before, timeout=90.0, min_count=2)
         assert result.status not in ("timeout",), "First processing must complete"
 
         # Snapshot after first processing
@@ -656,7 +662,10 @@ class TestEmailDeduplication:
             {"kind": "qr", "value": TRIGGER},
             {"kind": "content", "text": "After trigger"},
         ]))
-        r1 = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # [content][trigger][content] → TWO documents (no_code/ + FK3/), written
+        # one after the other: wait for both, or the second one lands in the
+        # next snapshot and looks like a reprocessing (race seen 2026-10-18).
+        r1 = _poll_result(http, server, data_dir, before, timeout=90.0, min_count=2)
         assert r1.status not in ("timeout",), "First processing must complete"
 
         # Get config id
@@ -780,14 +789,17 @@ class TestEmailFilesystemIntegration:
         ])
         before = snapshot_output(data_dir)
         _send(pdf)
-        result = _poll_result(http, server, data_dir, before, timeout=90.0)
+        # [content][trigger][content] → TWO documents (no_code/ + FK3/), written
+        # one after the other: wait for both, or the second one lands in the
+        # next snapshot and looks like a reprocessing (race seen 2026-10-18).
+        result = _poll_result(http, server, data_dir, before, timeout=90.0, min_count=2)
         assert result.status != "timeout"
-        if result.output_files:
-            for f in result.output_files:
-                pages = self._page_count(f)
-                assert pages == 1, (
-                    f"delete mode: output must have 1 page (separator removed), got {pages}"
-                )
+        assert result.output_files, f"Expected the FK3 document in output/, got: {result}"
+        for f in result.output_files:
+            pages = self._page_count(f)
+            assert pages == 1, (
+                f"delete mode: output must have 1 page (separator removed), got {pages}"
+            )
         # At minimum, no output in no_code/ (the split should produce output files)
         assert len(result.error_files) == 0, (
             f"No files should go to error/: {result.error_files}"
