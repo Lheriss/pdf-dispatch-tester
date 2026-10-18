@@ -88,11 +88,24 @@ Le tester démarre en `WEB_MODE=1` par défaut : une interface Flask reste activ
 - **Phase 7 (Playwright UI)** nécessite que Chromium soit installé dans le container.  
   Ce n'est le cas qu'après un **rebuild de l'image tester** — opération requise si le `Dockerfile` a changé.
 
+### Vérification de l'instance testée
+
+Le tester partage le réseau du conteneur `pdf-dispatch-test` (`network_mode: service:`) : `localhost:5000` désigne le conteneur auquel il était attaché **au moment de sa propre création**. Si seul pdf-dispatch est recréé (nouvelle image), le tester continue de parler à l'**ancienne** instance — que Docker ne peut pas supprimer tant que le tester utilise son réseau.
+
+Pour l'éviter, le tester compare en permanence (`instance_check.py`) la version qui répond sur `localhost:5000` avec celle de chaque adresse du nom `pdf-dispatch-test` :
+
+- **bandeau vert** en haut de l'interface : version réellement testée, une seule instance ;
+- **bandeau rouge** et bouton « Lancer » désactivé : plusieurs instances coexistent → arrêter **toute** la stack, supprimer tout conteneur pdf-dispatch orphelin, redémarrer ;
+- **bandeau orange** : vérification impossible (nom introuvable, hors stack compose), non bloquant.
+
+Le même contrôle s'exécute au début de chaque session pytest (aussi en mode CLI) et l'arrête (code 3) en cas d'incohérence. Option : `TESTER_EXPECT_VERSION` (préfixe, ex. `v1.8.1-3`) bloque aussi si la version testée n'est pas celle attendue. `TESTER_SKIP_INSTANCE_CHECK=1` désactive l'arrêt de pytest (dépannage uniquement).
+
 ### Quand rebuild vs simple re-pull
 
-| Changement dans le repo tester | Action Portainer |
+| Changement | Action Portainer |
 |-------------------------------|-----------------|
-| Code Python (`.py`), compose, fixtures | Re-pull image → Recreate container |
+| **Nouvelle image pdf-dispatch** (`:dev`) | Re-pull, puis **arrêter et redémarrer toute la stack** (jamais recréer pdf-dispatch seul — voir ci-dessus) |
+| Code Python du tester (`.py`), compose, fixtures | Re-pull image → arrêter et redémarrer toute la stack |
 | `Dockerfile` (ex: ajout Playwright) | **Delete + Add stack** (rebuild de l'image CI) |
 | Variables d'environnement ou structure compose | **Delete + Add stack** |
 
@@ -171,6 +184,7 @@ pdf-dispatch-tester/
 ├── docker-compose.test.yml           ← stack complet (pdf-dispatch + tester + greenmail)
 ├── entrypoint.sh                     ← génère config.yaml depuis env vars, démarre Flask/pytest
 ├── web_runner.py                     ← interface web Flask (WEB_MODE=1)
+├── instance_check.py                 ← quelle instance de pdf-dispatch est réellement testée
 │
 ├── pdf_generator.py                  ← fabrique de PDFs de test (QR, Code128, adversarial)
 ├── file_dropper.py                   ← écrit /data/input/, lit /data/output/ (pypdf)

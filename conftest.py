@@ -65,8 +65,9 @@ def _log_session_header(log, http_session: "requests.Session", server: str, term
         r = http_session.get(f"{server}/api/runtime", timeout=5)
         r.raise_for_status()
         rt = r.json()
-        sha = (rt.get("app_version") or "?")[:8]
-        _info(f"SHA            : {sha}")
+        # Full version (v1.8.1-3-gb76ad06): the short form hid which commit
+        # was really under test.
+        _info(f"SHA            : {rt.get('app_version') or '?'}")
         _info(f"BARCODE_DPI    : {rt.get('barcode_dpi', '?')!s:<8}  "
               f"BARCODE_DPI_SCAN : {rt.get('barcode_dpi_scan', '?')}")
         _info(f"BARCODE_SCANNER: {rt.get('barcode_scanner', '?')!s:<8}  "
@@ -315,6 +316,20 @@ def http(request, server, api_key, log) -> requests.Session:
             "   Make sure the test instance is running (see README → Quick start).\n",
             returncode=1,
         )
+
+    # Is localhost:5000 really the current pdf-dispatch-test container? After
+    # a redeploy that recreated only pdf-dispatch, the tester stays attached
+    # to the OLD instance (shared network namespace) — stop before running
+    # 355 tests against the wrong code. See instance_check.py.
+    from instance_check import BLOCKING, check_instance, summary_line
+    ic = check_instance(server=server, api_key=api_key)
+    line = summary_line(ic)
+    log.info(line)
+    term = request.config.pluginmanager.get_plugin("terminalreporter")
+    if term is not None:
+        term.write_line(line)
+    if ic["status"] in BLOCKING and os.environ.get("TESTER_SKIP_INSTANCE_CHECK") != "1":
+        pytest.exit(f"\n{line}\n", returncode=3)
     return s
 
 

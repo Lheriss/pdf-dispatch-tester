@@ -19,6 +19,7 @@ COPY tester_logger.py .
 COPY conftest.py .
 COPY pytest.ini .
 COPY web_runner.py .
+COPY instance_check.py .
 COPY entrypoint.sh .
 COPY tests/ ./tests/
 

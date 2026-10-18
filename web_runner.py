@@ -506,6 +506,13 @@ _HTML = """<!DOCTYPE html>
   .srv{font-size:12px;color:var(--muted);font-family:monospace}
   #health{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel);
           border:1px solid var(--border);margin-left:auto}
+  .inst{border-radius:8px;padding:10px 14px;margin:-8px 0 20px;font-size:13px;border:1px solid var(--border)}
+  .inst-wait{color:var(--muted)}
+  .inst-ok{border-color:var(--green);color:var(--green)}
+  .inst-warn{border-color:#d29922;color:#d29922}
+  .inst-bad{border-color:var(--red);color:var(--red);background:rgba(248,81,73,.08);font-size:14px}
+  .inst-peers{color:var(--muted);font-size:12px;margin-left:8px}
+  .inst-msg{margin-top:6px;color:var(--text)}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px}
   .panel h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
              color:var(--muted);margin-bottom:12px}
@@ -559,6 +566,7 @@ _HTML = """<!DOCTYPE html>
   <span class="srv">{{ server }}</span>
   <span id="health">⏳ vérification…</span>
 </header>
+<div id="instance" class="inst inst-wait">⏳ Vérification de l'instance pdf-dispatch testée…</div>
 <div class="cols">
 
   <div>
@@ -657,6 +665,34 @@ async function checkHealth(){
   catch{el.textContent='🔴 injoignable';el.style.color='var(--red)'}
 }
 checkHealth();setInterval(checkHealth,30000);
+
+// ── instance under test ──────────────────────────────────────────────────────
+// Shows which pdf-dispatch version the tests will really hit, and blocks the
+// launch when the tester is attached to a stale instance (see instance_check.py).
+let _instBlocking=false;
+function _isRunning(){const s=document.getElementById('stop-btn');return s&&s.style.display==='inline-block';}
+async function checkInstance(){
+  const el=document.getElementById('instance');
+  try{
+    const r=await fetch('/instance?t='+Date.now());const d=await r.json();
+    _instBlocking=!!d.blocking;
+    el.className='inst inst-'+(d.status==='ok'?'ok':(d.blocking?'bad':'warn'));
+    let h=(d.status==='ok'?'✅ ':(d.blocking?'❌ ':'⚠️ '))+'<b>pdf-dispatch testé : '+esc(String(d.tested||'?'))+'</b>';
+    const peers=Object.entries(d.peers||{});
+    if(peers.length)h+='<span class="inst-peers">« '+esc(String(d.peer_host))+' » : '+
+      peers.map(([ip,v])=>esc(String(v))+' ('+esc(ip)+')').join(', ')+'</span>';
+    if(d.expected)h+='<span class="inst-peers">attendu : '+esc(String(d.expected))+'*</span>';
+    if(d.message)h+='<div class="inst-msg">'+esc(String(d.message))+'</div>';
+    el.innerHTML=h;
+  }catch(e){
+    _instBlocking=false;el.className='inst inst-warn';
+    el.textContent='⚠️ Vérification de l’instance impossible : '+e.message;
+  }
+  const btn=document.getElementById('launch');
+  if(btn&&!_isRunning()){btn.disabled=_instBlocking;
+    btn.title=_instBlocking?'Instance pdf-dispatch incohérente — voir le bandeau rouge':'';}
+}
+checkInstance();setInterval(checkInstance,15000);
 
 // ── parent-child checkbox sync ────────────────────────────────────────────────
 function syncParent(parentId) {
@@ -757,6 +793,8 @@ async function launch(){
   // Include all checked (let backend figure out which args to use)
   const all=[...document.querySelectorAll('input[type=checkbox]:checked:not(:disabled)')].map(c=>c.value);
   if(!all.length){alert('Sélectionnez au moins un groupe.');return;}
+  await checkInstance();
+  if(_instBlocking){alert('Lancement bloqué : le tester ne parle pas à la bonne instance de pdf-dispatch (voir le bandeau rouge).');return;}
   const btn=document.getElementById('launch');btn.disabled=true;
   const stopBtn=document.getElementById('stop-btn');stopBtn.style.display='inline-block';stopBtn.disabled=false;
   const out=document.getElementById('out');
@@ -810,6 +848,17 @@ function setBadge(cls,txt){
 @app.get("/")
 def index():
     return render_template_string(_HTML, groups=GROUPS, server=SERVER)
+
+
+@app.get("/instance")
+def instance():
+    """Which pdf-dispatch instance the tests will hit (see instance_check.py)."""
+    from instance_check import BLOCKING, check_instance
+    result = check_instance(server=SERVER)
+    result["blocking"] = result["status"] in BLOCKING
+    resp = jsonify(result)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/healthz-proxy")
